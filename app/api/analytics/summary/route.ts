@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     // Fetch all documents
     const { data: documents, error: documentsError } = await supabase
       .from('documents')
-      .select('status, type')
+      .select('status, type') as { data: { status: string; type: string }[] | null; error: unknown }
 
     if (documentsError) {
       return NextResponse.json(
