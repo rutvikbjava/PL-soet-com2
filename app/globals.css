@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Poppins', sans-serif;
+    background-color: #FFF4EC;
+    color: #202020;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Poppins', sans-serif;
+    color: #703C19;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-college-secondary text-white px-6 py-2 rounded-full
+           font-poppins font-semibold text-sm
+           hover:bg-college-secondary-dark
+           transition-all duration-150 cursor-pointer;
+  }
+
+  .btn-secondary {
+    @apply bg-white border border-college-secondary
+           text-college-secondary px-6 py-2 rounded-full
+           font-poppins font-semibold text-sm
+           hover:bg-college-secondary hover:text-white
+           transition-all duration-150 cursor-pointer;
+  }
+
+  .btn-danger {
+    @apply bg-red-500 text-white px-6 py-2 rounded-full
+           font-poppins font-semibold text-sm
+           hover:bg-red-600
+           transition-all duration-150 cursor-pointer;
+  }
+
+  .card {
+    @apply bg-white border border-college-peach
+           rounded-2xl p-6 shadow-sm;
+  }
+
+  .page-heading {
+    @apply font-poppins font-bold text-2xl text-college-accent;
+  }
+
+  .section-heading {
+    @apply font-poppins font-semibold text-lg text-college-accent
+           border-b border-college-peach pb-2 mb-4;
+  }
+
+  .badge-draft {
+    @apply bg-gray-100 text-gray-600 text-xs font-semibold
+           px-3 py-1 rounded-full;
+  }
+
+  .badge-pending {
+    @apply bg-orange-100 text-orange-700 text-xs font-semibold
+           px-3 py-1 rounded-full;
+  }
+
+  .badge-approved {
+    @apply bg-green-100 text-green-700 text-xs font-semibold
+           px-3 py-1 rounded-full;
+  }
+
+  .badge-rejected {
+    @apply bg-red-100 text-red-700 text-xs font-semibold
+           px-3 py-1 rounded-full;
+  }
+
+  .table-header {
+    @apply bg-college-accent text-white
+           px-4 py-3 text-left text-sm font-semibold font-poppins;
+  }
+
+  .table-row {
+    @apply border-b border-college-peach
+           hover:bg-college-bg transition-colors duration-150;
+  }
+
+  .input-field {
+    @apply w-full border border-gray-300 rounded-lg px-4 py-2
+           font-poppins text-sm text-college-text
+           focus:outline-none focus:border-college-secondary
+           focus:ring-1 focus:ring-college-secondary
+           bg-white;
+  }
+
+  .label {
+    @apply block text-sm font-semibold text-college-accent mb-1;
+  }
+}
