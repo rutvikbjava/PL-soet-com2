@@ -49,7 +49,7 @@ export default function DocumentDetailPage({
   const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchDocumentData = async () => {
