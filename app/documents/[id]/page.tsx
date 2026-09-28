@@ -71,20 +71,25 @@ export default function DocumentDetailPage({
       }
 
       const currentUserId = session?.user?.id;
-      const currentUserEmail = session?.user?.email;
+      const currentUserEmail = session?.user?.email || "";
 
       setUserId(currentUserId);
-      setUserEmail(currentUserEmail || null);
+      setUserEmail(currentUserEmail);
 
-      // Fetch user role
-      const { data: userData } = await supabase
-        .from("users")
+      // Fetch user role by email
+      const { data: userData } = await (supabase.from("users") as any)
         .select("role")
-        .eq("id", currentUserId)
+        .eq("email", currentUserEmail)
         .single();
 
       const role = (userData as any)?.role || null;
       setCurrentUserRole(role);
+
+      // Redirect students to /assignments
+      if (role === "student") {
+        router.replace("/assignments");
+        return;
+      }
 
       // Fetch document details
       const res = await fetch(`/api/documents/${params.id}`);

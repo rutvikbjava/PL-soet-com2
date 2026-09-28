@@ -64,13 +64,13 @@ export default function DashboardPage() {
         }
 
         const userId = session?.user?.id;
-        setUserEmail(session.user.email || "");
+        const email = session.user.email || "";
+        setUserEmail(email);
 
-        // Fetch user role
-        const { data: userData } = await supabase
-          .from("users")
+        // Fetch user role by email
+        const { data: userData } = await (supabase.from("users") as any)
           .select("role")
-          .eq("id", userId)
+          .eq("email", email)
           .single();
 
         const role = (userData as any)?.role || null;
@@ -78,7 +78,7 @@ export default function DashboardPage() {
 
         // Redirect students to /assignments
         if (role === "student") {
-          router.push("/assignments");
+          router.replace("/assignments");
           return;
         }
 

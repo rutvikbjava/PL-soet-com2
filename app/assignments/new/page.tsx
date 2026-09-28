@@ -122,7 +122,6 @@ export default function NewAssignmentPage() {
           max_marks: maxMarks,
           attachment_url: attachmentUrl,
           attachment_name: attachmentName,
-          created_by: userId,
           created_by_email: userEmail,
         })
         .select()

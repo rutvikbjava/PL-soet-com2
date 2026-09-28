@@ -20,6 +20,7 @@ export default function AuditPage() {
   const documentId = params.id as string;
 
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -37,7 +38,23 @@ export default function AuditPage() {
           return;
         }
 
-        setUserEmail(session.user.email || "");
+        const email = session.user.email || "";
+        setUserEmail(email);
+
+        // Fetch user role by email
+        const { data: userData } = await (supabase.from("users") as any)
+          .select("role")
+          .eq("email", email)
+          .single();
+
+        const role = (userData as any)?.role || null;
+        setUserRole(role);
+
+        // Redirect students to /assignments
+        if (role === "student") {
+          router.replace("/assignments");
+          return;
+        }
 
         // Fetch audit logs
         const response = await fetch(`/api/documents/${documentId}/audit`, {
@@ -135,7 +152,7 @@ export default function AuditPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-college-bg">
-        <Navbar userEmail={userEmail} />
+        <Navbar userEmail={userEmail} userRole={userRole} />
         <div className="max-w-4xl mx-auto px-6 py-8">
           <div className="card text-center">
             <p className="text-red-500 font-poppins">{error}</p>

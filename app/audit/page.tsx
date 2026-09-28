@@ -22,6 +22,7 @@ interface AuditEntry {
 export default function AuditPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +44,23 @@ export default function AuditPage() {
           return;
         }
 
-        setUserEmail(session.user.email || "");
+        const email = session.user.email || "";
+        setUserEmail(email);
+
+        // Fetch user role by email
+        const { data: userData } = await (supabase.from("users") as any)
+          .select("role")
+          .eq("email", email)
+          .single();
+
+        const role = (userData as any)?.role || null;
+        setUserRole(role);
+
+        // Redirect students to /assignments
+        if (role === "student") {
+          router.replace("/assignments");
+          return;
+        }
 
         const response = await fetch("/api/audit/mine", {
           headers: {
@@ -125,7 +142,7 @@ export default function AuditPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-college-bg">
-        <Navbar userEmail={userEmail} />
+        <Navbar userEmail={userEmail} userRole={userRole} />
         <div className="max-w-6xl mx-auto px-6 py-8">
           <div className="card text-center">
             <p className="text-red-500 font-poppins">{error}</p>

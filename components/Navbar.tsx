@@ -70,12 +70,14 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
 
       {/* Center navigation links */}
       <div className="hidden md:flex items-center gap-6">
-        <Link
-          href="/dashboard"
-          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-        >
-          Dashboard
-        </Link>
+        {!isStudent && (
+          <Link
+            href="/dashboard"
+            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+          >
+            Dashboard
+          </Link>
+        )}
         <Link
           href="/assignments"
           className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
@@ -103,6 +105,14 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
               Analytics
             </Link>
           </>
+        )}
+        {userRole === "faculty" && (
+          <Link
+            href="/assignments/analytics"
+            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+          >
+            Assignment Analytics
+          </Link>
         )}
       </div>
 

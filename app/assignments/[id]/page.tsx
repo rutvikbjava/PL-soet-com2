@@ -21,7 +21,6 @@ interface Assignment {
 interface Submission {
   id: string;
   assignment_id: string;
-  student_id: string;
   student_email: string;
   file_url: string;
   file_name: string;
@@ -111,7 +110,7 @@ export default function AssignmentDetailPage() {
           .from("submissions")
           .select("*")
           .eq("assignment_id", assignmentId)
-          .eq("student_id", id)
+          .eq("student_email", email)
           .order("submitted_at", { ascending: false });
 
         setSubmissions((submissionsData ?? []) as Submission[]);
@@ -217,7 +216,6 @@ export default function AssignmentDetailPage() {
       const { error: insertError } = await (supabase.from("submissions") as any)
         .insert({
           assignment_id: assignmentId,
-          student_id: userId,
           student_email: userEmail,
           file_url: fileUrl,
           file_name: file.name,

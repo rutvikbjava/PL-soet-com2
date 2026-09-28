@@ -9,6 +9,7 @@ import Navbar from "@/components/Navbar";
 export default function UploadPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [type, setType] = useState("");
   const [department, setDepartment] = useState("");
@@ -32,7 +33,23 @@ export default function UploadPage() {
           return;
         }
 
-        setUserEmail(session.user.email || "");
+        const email = session.user.email || "";
+        setUserEmail(email);
+
+        // Fetch user role by email
+        const { data: userData } = await (supabase.from("users") as any)
+          .select("role")
+          .eq("email", email)
+          .single();
+
+        const role = (userData as any)?.role || null;
+
+        // Redirect students to /assignments
+        if (role === "student") {
+          router.replace("/assignments");
+          return;
+        }
+
         setLoading(false);
       } catch (err) {
         console.error("Auth check error:", err);
@@ -143,7 +160,7 @@ export default function UploadPage() {
 
   return (
     <div className="min-h-screen bg-college-bg">
-      <Navbar userEmail={userEmail} />
+      <Navbar userEmail={userEmail} userRole={userRole} />
 
       <main className="max-w-2xl mx-auto px-6 py-8">
         {/* Back Link */}

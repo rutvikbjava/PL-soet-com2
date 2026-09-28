@@ -31,8 +31,20 @@ export default function LoginPage() {
         return;
       }
 
-      // Redirect to dashboard on success
-      router.push("/dashboard");
+      // Fetch user role by email
+      const { data: userData } = await (supabase.from("users") as any)
+        .select("role")
+        .eq("email", email)
+        .single();
+
+      const role = (userData as any)?.role || null;
+
+      // Redirect based on role
+      if (role === "student") {
+        router.push("/assignments");
+      } else {
+        router.push("/dashboard");
+      }
     } catch (err) {
       console.error("Login error:", err);
       setError("An unexpected error occurred during login.");
