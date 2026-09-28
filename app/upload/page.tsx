@@ -106,7 +106,7 @@ export default function UploadPage() {
       const response = await fetch("/api/documents/upload", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
         },
         body: formData,
       });
