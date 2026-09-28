@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
-import Navbar from "@/components/Navbar";
 import SignaturePad from "@/components/SignaturePad";
 
 interface Document {
@@ -15,41 +14,42 @@ interface Document {
   scope: string;
   status: string;
   created_at: string;
+  creator_id: string;
 }
 
 interface Approval {
   id: string;
+  workflow_id: string;
   step_order: number;
-  required_role: string;
   status: string;
-  signed_at?: string;
-  viewable_signature_url?: string;
+  signed_at: string | null;
+  signature_url: string | null;
+  viewable_signature_url?: string | null;
 }
 
 interface Workflow {
   id: string;
   document_id: string;
+  generated_steps: any[];
 }
 
-interface DocumentData {
-  document: Document;
-  viewable_file_url: string | null;
-  workflow: Workflow;
-  approvals: Approval[];
-}
-
-export default function DocumentDetailPage() {
-  const params = useParams();
+export default function DocumentDetailPage({
+  params,
+}: {
+  params: { id: string };
+}) {
   const router = useRouter();
-  const documentId = params.id as string;
-
-  const [userEmail, setUserEmail] = useState("");
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [data, setData] = useState<DocumentData | null>(null);
+  const [document, setDocument] = useState<Document | null>(null);
+  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [viewableFileUrl, setViewableFileUrl] = useState<string | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState("");
 
   const fetchDocumentData = async () => {
@@ -67,48 +67,64 @@ export default function DocumentDetailPage() {
         return;
       }
 
-      setUserEmail(session.user.email || "");
+      const currentUserId = session?.user?.id;
+      const currentUserEmail = session?.user?.email;
 
-      // Get user role
+      setUserId(currentUserId);
+      setUserEmail(currentUserEmail || null);
+
+      // Fetch user role
       const { data: userData } = await supabase
         .from("users")
         .select("role")
-        .eq("id", session.user.id)
+        .eq("id", currentUserId)
         .single();
 
-      if (userData) {
-        setUserRole((userData as any).role);
+      const role = (userData as any)?.role || null;
+      setCurrentUserRole(role);
+
+      // Fetch document details
+      const res = await fetch(`/api/documents/${params.id}`);
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to fetch document");
       }
 
-      // Fetch document data
-      const response = await fetch(`/api/documents/${documentId}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+      const data = await res.json();
+      setDocument(data.document);
+      setWorkflow(data.workflow);
+      setApprovals(data.approvals || []);
+      setViewableFileUrl(data.viewable_file_url || null);
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        setError(result.error || "Failed to fetch document.");
-        setLoading(false);
-        return;
-      }
-
-      setData(result);
       setLoading(false);
-    } catch (err) {
-      console.error("Fetch error:", err);
-      setError("An unexpected error occurred.");
+    } catch (err: any) {
+      console.error("Error fetching document:", err);
+      setError(err.message || "An unexpected error occurred.");
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (documentId) {
-      fetchDocumentData();
-    }
-  }, [documentId]);
+    fetchDocumentData();
+  }, [params.id, router]);
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  };
 
   const getBadgeClass = (status: string) => {
     switch (status) {
@@ -125,143 +141,84 @@ export default function DocumentDetailPage() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const day = String(date.getDate()).padStart(2, "0");
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
-
-  const handleSignatureSave = (dataUrl: string) => {
-    setSavedSignatureDataUrl(dataUrl);
-  };
-
-  const handleApprove = async (approvalId: string) => {
-    if (!savedSignatureDataUrl) {
-      setActionError("Please save your signature first.");
-      return;
-    }
+  const handleApprove = async () => {
+    if (!savedSignatureDataUrl || !pendingApproval) return;
 
     try {
-      setActionLoading(true);
+      setIsSubmitting(true);
       setActionError("");
 
-      const supabase = createBrowserClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      // Step 1: Convert dataUrl to Blob
+      const response = await fetch(savedSignatureDataUrl);
+      const blob = await response.blob();
 
-      if (!session) {
-        setActionError("Session expired. Please log in again.");
-        setActionLoading(false);
-        return;
-      }
-
-      // Convert dataUrl to Blob
-      const blob = await fetch(savedSignatureDataUrl).then((r) => r.blob());
-
-      // Upload signature
+      // Step 2: Upload signature
       const formData = new FormData();
       formData.append("signature", blob, "signature.png");
-      formData.append("approval_id", approvalId);
+      formData.append("approval_id", pendingApproval.id);
 
-      const uploadResponse = await fetch("/api/signatures/upload", {
+      const sigRes = await fetch("/api/signatures/upload", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
         body: formData,
       });
 
-      const uploadResult = await uploadResponse.json();
-
-      if (!uploadResponse.ok) {
-        setActionError(uploadResult.error || "Failed to upload signature.");
-        setActionLoading(false);
-        return;
+      if (!sigRes.ok) {
+        const sigData = await sigRes.json();
+        throw new Error(sigData.error || "Failed to upload signature");
       }
 
-      const { signature_url } = uploadResult;
+      const sigData = await sigRes.json();
 
-      // Approve with signature
-      const approveResponse = await fetch(`/api/approvals/${approvalId}/act`, {
+      // Step 3: Approve with signature URL
+      const actRes = await fetch(`/api/approvals/${pendingApproval.id}/act`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "approve",
-          signature_url,
+          signature_url: sigData.signature_url,
         }),
       });
 
-      const approveResult = await approveResponse.json();
-
-      if (!approveResponse.ok) {
-        setActionError(approveResult.error || "Failed to approve document.");
-        setActionLoading(false);
-        return;
+      if (!actRes.ok) {
+        const actData = await actRes.json();
+        throw new Error(actData.error || "Failed to approve document");
       }
 
-      // Success - refetch data and reset signature
+      // Success: reset signature and refresh data
       setSavedSignatureDataUrl(null);
+      setIsSubmitting(false);
       await fetchDocumentData();
-      setActionLoading(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Approve error:", err);
-      setActionError("An unexpected error occurred during approval.");
-      setActionLoading(false);
+      setActionError(err.message || "An error occurred while approving.");
+      setIsSubmitting(false);
     }
   };
 
-  const handleReject = async (approvalId: string) => {
-    if (!confirm("Are you sure you want to reject this document?")) {
-      return;
-    }
+  const handleReject = async () => {
+    if (!pendingApproval) return;
 
     try {
-      setActionLoading(true);
+      setIsSubmitting(true);
       setActionError("");
 
-      const supabase = createBrowserClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        setActionError("Session expired. Please log in again.");
-        setActionLoading(false);
-        return;
-      }
-
-      const response = await fetch(`/api/approvals/${approvalId}/act`, {
+      const actRes = await fetch(`/api/approvals/${pendingApproval.id}/act`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          action: "reject",
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject" }),
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        setActionError(result.error || "Failed to reject document.");
-        setActionLoading(false);
-        return;
+      if (!actRes.ok) {
+        const actData = await actRes.json();
+        throw new Error(actData.error || "Failed to reject document");
       }
 
-      // Success - refetch data
+      setIsSubmitting(false);
       await fetchDocumentData();
-      setActionLoading(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Reject error:", err);
-      setActionError("An unexpected error occurred during rejection.");
-      setActionLoading(false);
+      setActionError(err.message || "An error occurred while rejecting.");
+      setIsSubmitting(false);
     }
   };
 
@@ -277,45 +234,57 @@ export default function DocumentDetailPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-college-bg">
-        <Navbar userEmail={userEmail} />
-        <div className="max-w-4xl mx-auto px-6 py-8">
-          <div className="card text-center">
-            <p className="text-red-500 font-poppins">{error}</p>
-          </div>
+      <div className="min-h-screen bg-college-bg flex items-center justify-center px-6">
+        <div className="card text-center max-w-md">
+          <p className="text-red-500 font-poppins">{error}</p>
+          <Link href="/dashboard" className="btn-secondary mt-4 inline-block">
+            Back to Dashboard
+          </Link>
         </div>
       </div>
     );
   }
 
-  if (!data) {
-    return null;
+  if (!document) {
+    return (
+      <div className="min-h-screen bg-college-bg flex items-center justify-center px-6">
+        <div className="card text-center max-w-md">
+          <p className="text-red-500 font-poppins">Document not found</p>
+          <Link href="/dashboard" className="btn-secondary mt-4 inline-block">
+            Back to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
   }
 
-  const { document, viewable_file_url, approvals } = data;
-
-  // Find pending approval that matches user role
-  const pendingApproval = approvals.find(
-    (approval) =>
-      approval.status === "pending" && approval.required_role === userRole
-  );
+  const generatedSteps = workflow?.generated_steps ?? [];
+  const pendingApproval = approvals?.find((a) => a.status === "pending");
+  const pendingStep = pendingApproval
+    ? generatedSteps.find(
+        (s: any) => s.stepOrder === pendingApproval.step_order
+      )
+    : null;
+  const isMyTurnToApprove =
+    pendingStep &&
+    pendingApproval &&
+    currentUserRole &&
+    pendingStep.requiredRole?.toLowerCase() === currentUserRole?.toLowerCase();
 
   return (
     <div className="min-h-screen bg-college-bg">
-      <Navbar userEmail={userEmail} />
-
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-6 py-8">
         {/* Back Link */}
         <Link
           href="/dashboard"
-          className="text-college-secondary text-sm font-poppins mb-4 inline-block hover:underline"
+          className="text-college-secondary text-sm mb-4 inline-block font-poppins hover:underline"
         >
           ← Back to Dashboard
         </Link>
 
         {/* Section 1: Document Details */}
         <div className="card mb-6">
-          <div className="flex justify-between items-start flex-wrap gap-4 mb-4">
+          <div className="flex justify-between flex-wrap gap-4">
             <h1 className="page-heading">{document.title}</h1>
             <span className={getBadgeClass(document.status)}>
               {document.status}
@@ -323,162 +292,188 @@ export default function DocumentDetailPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 mt-4">
+            {/* Type */}
             <div className="bg-college-peach rounded-lg px-4 py-3">
               <p className="text-xs text-gray-500 font-poppins">Type</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
                 {document.type}
               </p>
             </div>
+
+            {/* Department */}
             <div className="bg-college-peach rounded-lg px-4 py-3">
               <p className="text-xs text-gray-500 font-poppins">Department</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
                 {document.department}
               </p>
             </div>
+
+            {/* Scope */}
             <div className="bg-college-peach rounded-lg px-4 py-3">
               <p className="text-xs text-gray-500 font-poppins">Scope</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
                 {document.scope}
               </p>
             </div>
+
+            {/* Created Date */}
             <div className="bg-college-peach rounded-lg px-4 py-3">
-              <p className="text-xs text-gray-500 font-poppins">Created</p>
+              <p className="text-xs text-gray-500 font-poppins">Created Date</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
                 {formatDate(document.created_at)}
               </p>
             </div>
           </div>
 
-          {viewable_file_url && (
-            <a
-              href={viewable_file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-secondary mt-4 inline-flex items-center gap-2"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+          {viewableFileUrl && (
+            <div className="mt-4">
+              <a
+                href={viewableFileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-              View Uploaded File
-            </a>
+                View Uploaded File
+              </a>
+            </div>
           )}
         </div>
 
         {/* Section 2: Workflow Steps */}
         <div className="card mb-6">
           <h2 className="section-heading">Approval Workflow</h2>
-          <div className="space-y-4">
-            {approvals.map((approval) => (
-              <div key={approval.id} className="flex gap-4">
-                {/* Circle with step number */}
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm font-poppins ${
-                    approval.status === "approved"
-                      ? "bg-college-secondary text-white"
-                      : approval.status === "rejected"
-                      ? "bg-red-500 text-white"
-                      : "border-2 border-gray-300 text-gray-400"
-                  }`}
-                >
-                  {approval.step_order}
-                </div>
+          <div className="mt-4">
+            {generatedSteps.map((step: any, index: number) => {
+              const stepApproval = approvals.find(
+                (a) => a.step_order === step.stepOrder
+              );
+              const stepStatus = stepApproval?.status || "pending";
 
-                {/* Step details */}
-                <div className="flex-1">
-                  <div className="flex justify-between items-start flex-wrap gap-2">
-                    <p className="font-semibold text-college-accent font-poppins">
-                      Step {approval.step_order} — {approval.required_role}{" "}
-                      Approval
-                    </p>
-                    <span className={getBadgeClass(approval.status)}>
-                      {approval.status}
-                    </span>
+              let circleClass = "";
+              if (stepStatus === "approved") {
+                circleClass = "bg-college-secondary text-white";
+              } else if (stepStatus === "rejected") {
+                circleClass = "bg-red-500 text-white";
+              } else {
+                circleClass = "border-2 border-gray-300 text-gray-400 bg-white";
+              }
+
+              return (
+                <div
+                  key={index}
+                  className="flex items-start gap-4 py-3 border-b border-college-peach"
+                >
+                  {/* Step Number Circle */}
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${circleClass}`}
+                  >
+                    {step.stepOrder}
                   </div>
 
-                  {approval.status === "approved" && approval.signed_at && (
-                    <p className="text-xs text-gray-500 font-poppins mt-1">
-                      Signed on {formatDate(approval.signed_at)}
+                  {/* Step Content */}
+                  <div className="flex-1">
+                    <p className="font-semibold text-college-accent font-poppins text-sm">
+                      Step {step.stepOrder} — {step.requiredRole} Approval
                     </p>
-                  )}
 
-                  {approval.status === "approved" &&
-                    approval.viewable_signature_url && (
-                      <img
-                        src={approval.viewable_signature_url}
-                        alt="Signature"
-                        className="max-h-14 border border-college-peach rounded p-1 mt-2"
-                      />
-                    )}
+                    {stepApproval?.status === "approved" &&
+                      stepApproval?.signed_at && (
+                        <p className="text-xs text-gray-500 mt-1 font-poppins">
+                          Signed on {formatDateTime(stepApproval.signed_at)}
+                        </p>
+                      )}
+
+                    {stepApproval?.status === "approved" &&
+                      stepApproval?.viewable_signature_url && (
+                        <img
+                          src={stepApproval.viewable_signature_url}
+                          alt="Approval signature"
+                          className="mt-2 border border-college-peach rounded p-1"
+                          style={{ maxHeight: "60px" }}
+                        />
+                      )}
+                  </div>
+
+                  {/* Status Badge */}
+                  <span className={getBadgeClass(stepStatus)}>
+                    {stepStatus}
+                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* Section 3: Action Panel */}
-        {pendingApproval && (
-          <div className="card border-l-4 border-college-secondary mb-6">
+        {/* Section 3: Action Panel (only when isMyTurnToApprove) */}
+        {isMyTurnToApprove && (
+          <div
+            className="card mb-6"
+            style={{ borderLeft: "4px solid #C06121" }}
+          >
             <h2 className="section-heading">Your Approval Required</h2>
-            <p className="text-sm text-gray-500 font-poppins mb-4">
+
+            <p className="text-sm text-gray-500 font-poppins mb-2">
+              This document requires your approval as{" "}
+              <strong>{currentUserRole}</strong>
+            </p>
+
+            <p className="text-sm text-gray-400 font-poppins mb-4">
               Please review the document above before signing
             </p>
 
-            <div className="mb-6">
-              <SignaturePad
-                onSave={handleSignatureSave}
-                disabled={actionLoading}
-              />
-              {savedSignatureDataUrl && (
-                <p className="mt-2 text-sm text-green-600 font-poppins">
-                  ✓ Signature saved and ready to use
-                </p>
-              )}
-            </div>
+            {/* Signature Pad */}
+            <SignaturePad
+              onSave={(dataUrl) => setSavedSignatureDataUrl(dataUrl)}
+            />
 
-            {actionError && (
-              <div className="mb-4 text-red-500 text-sm font-poppins">
-                {actionError}
-              </div>
-            )}
-
-            <div className="flex gap-3 flex-wrap">
+            {/* Action Buttons */}
+            <div className="flex gap-4 mt-4">
               <button
-                onClick={() => handleApprove(pendingApproval.id)}
-                disabled={!savedSignatureDataUrl || actionLoading}
+                onClick={handleApprove}
+                disabled={!savedSignatureDataUrl || isSubmitting}
                 className="btn-primary"
               >
-                {actionLoading ? "Processing..." : "Approve with Signature"}
+                {isSubmitting ? "Approving..." : "Approve with Signature"}
               </button>
+
               <button
-                onClick={() => handleReject(pendingApproval.id)}
-                disabled={actionLoading}
+                onClick={handleReject}
+                disabled={isSubmitting}
                 className="btn-danger"
               >
-                {actionLoading ? "Processing..." : "Reject Document"}
+                Reject Document
               </button>
             </div>
+
+            {/* Inline Error */}
+            {actionError && (
+              <p className="text-red-500 text-sm mt-2 font-poppins">
+                {actionError}
+              </p>
+            )}
           </div>
         )}
 
-        {/* Audit Link */}
+        {/* Info Box when not user's turn */}
+        {!isMyTurnToApprove && document.status === "pending" && (
+          <div className="bg-college-peach rounded-lg p-4 text-sm text-college-accent font-poppins mb-6">
+            This document is awaiting approval from another authorized approver.
+          </div>
+        )}
+
+        {/* Audit Trail Link */}
         <Link
-          href={`/audit/${documentId}`}
-          className="text-college-secondary text-sm font-poppins hover:underline inline-block"
+          href={`/audit/${document.id}`}
+          className="text-college-secondary text-sm font-poppins hover:underline"
         >
           View Audit Trail →
         </Link>
       </main>
+
+      {/* Footer */}
+      <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
+        © MGM University SOET | EduSphere AI
+      </footer>
     </div>
   );
 }
