@@ -50,7 +50,7 @@ export default function DocumentDetailPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [actionError, setActionError] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchDocumentData = async () => {
     try {
@@ -142,85 +142,68 @@ export default function DocumentDetailPage({
   };
 
   const handleApprove = async () => {
-    if (!savedSignatureDataUrl || !pendingApproval) return;
+    if (!savedSignatureDataUrl || !pendingApproval) return
+
+    setIsSubmitting(true)
+    setError(null)
 
     try {
-      setIsSubmitting(true);
-      setActionError("");
-
-      // Step 1: Convert dataUrl to Blob
-      const response = await fetch(savedSignatureDataUrl);
-      const blob = await response.blob();
-
-      // Step 2: Upload signature
-      const formData = new FormData();
-      formData.append("signature", blob, "signature.png");
-      formData.append("approval_id", pendingApproval.id);
-
-      const sigRes = await fetch("/api/signatures/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!sigRes.ok) {
-        const sigData = await sigRes.json();
-        throw new Error(sigData.error || "Failed to upload signature");
-      }
-
-      const sigData = await sigRes.json();
-
-      // Step 3: Approve with signature URL
-      const actRes = await fetch(`/api/approvals/${pendingApproval.id}/act`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "approve",
-          signature_url: sigData.signature_url,
-        }),
-      });
-
-      if (!actRes.ok) {
-        const actData = await actRes.json();
-        throw new Error(actData.error || "Failed to approve document");
-      }
-
-      // Success: reset signature and refresh data
-      setSavedSignatureDataUrl(null);
-      setIsSubmitting(false);
-      await fetchDocumentData();
+      const fetchRes = await fetch(savedSignatureDataUrl)
+      const blob = await fetchRes.blob()
+      
+      const formData = new FormData()
+      formData.append('signature', blob, 'signature.png')
+      formData.append('approval_id', pendingApproval.id)
+      
+      const sigRes = await fetch('/api/signatures/upload', {
+        method: 'POST',
+        body: formData
+      })
+      const sigData = await sigRes.json()
+      if (!sigRes.ok) throw new Error(sigData.error || 'Failed to upload signature')
+      
+      const actRes = await fetch('/api/approvals/' + pendingApproval.id + '/act', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          action: 'approve', 
+          signature_url: sigData.signature_url 
+        })
+      })
+      const actData = await actRes.json()
+      if (!actRes.ok) throw new Error(actData.error || 'Failed to approve')
+      
+      setSavedSignatureDataUrl(null)
+      await fetchDocumentData()
     } catch (err: any) {
-      console.error("Approve error:", err);
-      setActionError(err.message || "An error occurred while approving.");
-      setIsSubmitting(false);
+      setError(err.message || 'Something went wrong')
+    } finally {
+      setIsSubmitting(false)
     }
-  };
+  }
 
   const handleReject = async () => {
-    if (!pendingApproval) return;
+    if (!pendingApproval) return
+
+    setIsSubmitting(true)
+    setError(null)
 
     try {
-      setIsSubmitting(true);
-      setActionError("");
+      const actRes = await fetch('/api/approvals/' + pendingApproval.id + '/act', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject' })
+      })
+      const actData = await actRes.json()
+      if (!actRes.ok) throw new Error(actData.error || 'Failed to reject')
 
-      const actRes = await fetch(`/api/approvals/${pendingApproval.id}/act`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject" }),
-      });
-
-      if (!actRes.ok) {
-        const actData = await actRes.json();
-        throw new Error(actData.error || "Failed to reject document");
-      }
-
-      setIsSubmitting(false);
-      await fetchDocumentData();
+      await fetchDocumentData()
     } catch (err: any) {
-      console.error("Reject error:", err);
-      setActionError(err.message || "An error occurred while rejecting.");
-      setIsSubmitting(false);
+      setError(err.message || 'Something went wrong')
+    } finally {
+      setIsSubmitting(false)
     }
-  };
+  }
 
   if (loading) {
     return (
@@ -441,6 +424,7 @@ export default function DocumentDetailPage({
             {/* Action Buttons */}
             <div className="flex gap-4 mt-4">
               <button
+                type="button"
                 onClick={handleApprove}
                 disabled={!savedSignatureDataUrl || isSubmitting}
                 className="btn-primary"
@@ -449,6 +433,7 @@ export default function DocumentDetailPage({
               </button>
 
               <button
+                type="button"
                 onClick={handleReject}
                 disabled={isSubmitting}
                 className="btn-danger"
