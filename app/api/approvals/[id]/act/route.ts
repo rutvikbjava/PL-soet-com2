@@ -29,7 +29,7 @@ export async function POST(
     }
 
     // Verify authenticated user
-    const { user, role } = await getSession(request);
+    const { user, role } = await getSession();
     if (!user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -37,15 +37,17 @@ export async function POST(
       );
     }
 
-    const supabase = createServerClient();
+    const supabase = (await createServerClient()) as any;
 
     // Fetch the approval row
-    const { data: approval, error: fetchError } = await supabase
+    const { data, error: fetchError } = await supabase
       .from('approvals')
       .select('*, workflows!inner(document_id)')
       .eq('id', approvalId)
       .eq('approver_id', user.id)
       .single();
+
+    const approval = data as any;
 
     if (fetchError || !approval) {
       return NextResponse.json(
@@ -66,7 +68,7 @@ export async function POST(
     const now = new Date().toISOString();
 
     // Update the approval row
-    const updateData: any = {
+    const updateData: Record<string, any> = {
       status: action,
       acted_at: now,
     };
@@ -138,7 +140,6 @@ export async function POST(
       if (document) {
         await sendNotification(
           document.creator_id,
-          'approval_rejected',
           `Your document has been rejected by ${role}.${comment ? ` Comment: ${comment}` : ''}`,
           documentId
         );
@@ -163,7 +164,7 @@ export async function POST(
 
       // Check if all approvals are approved
       const allApproved = allApprovals.every(
-        (appr) => appr.status === 'approved'
+        (appr: any) => appr.status === 'approved'
       );
 
       if (allApproved) {
@@ -208,7 +209,6 @@ export async function POST(
         if (document) {
           await sendNotification(
             document.creator_id,
-            'document_approved',
             `Your document has been fully approved and is now complete.`,
             documentId
           );
@@ -244,7 +244,6 @@ export async function POST(
         if (document) {
           await sendNotification(
             document.creator_id,
-            'step_approved',
             `Your document has been approved by ${role} (step ${approval.step_order}). Awaiting further approvals.`,
             documentId
           );

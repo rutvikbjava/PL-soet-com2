@@ -27,11 +27,13 @@ export async function getSession(): Promise<Session> {
   }
 
   // Fetch the user record from the users table
-  const { data: user, error } = await supabase
+  const { data: userData, error } = await supabase
     .from('users')
     .select('*')
     .eq('id', authUser.id)
     .single()
+
+  const user = userData as any
 
   if (error || !user) {
     return { user: null, role: null }

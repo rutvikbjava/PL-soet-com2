@@ -38,11 +38,13 @@ export async function POST(request: NextRequest) {
     const supabase = await createServerClient()
 
     // Fetch the approval and verify authorization
-    const { data: approval, error: approvalError } = await supabase
+    const { data: approvalData, error: approvalError } = await supabase
       .from('approvals')
       .select('id, approver_id, workflow_id, status')
       .eq('id', approvalId)
       .single()
+
+    const approval = approvalData as any
 
     if (approvalError || !approval) {
       return NextResponse.json(
@@ -100,7 +102,7 @@ export async function POST(request: NextRequest) {
     // Update approval with signature details
     const signedAt = new Date().toISOString()
     
-    const { data: updatedApproval, error: updateError } = await supabase
+    const { data: updatedApprovalData, error: updateError } = await (supabase as any)
       .from('approvals')
       .update({
         signature_url: signatureUrl,
@@ -109,6 +111,8 @@ export async function POST(request: NextRequest) {
       .eq('id', approvalId)
       .select()
       .single()
+
+    const updatedApproval = updatedApprovalData as any
 
     if (updateError || !updatedApproval) {
       // Rollback: delete uploaded signature

@@ -77,7 +77,7 @@ export default function DocumentDetailPage() {
         .single();
 
       if (userData) {
-        setUserRole(userData.role);
+        setUserRole((userData as any).role);
       }
 
       // Fetch document data

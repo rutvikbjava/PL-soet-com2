@@ -109,11 +109,13 @@ export async function POST(request: NextRequest) {
       status: 'draft',
     }
 
-    const { data: document, error: docError } = await supabase
+    const { data: documentData2, error: docError } = await (supabase as any)
       .from('documents')
       .insert(documentData)
       .select()
       .single()
+
+    const document = documentData2 as any
 
     if (docError || !document) {
       // Cleanup uploaded file if document creation fails
@@ -144,15 +146,17 @@ export async function POST(request: NextRequest) {
     // Insert workflow into database
     const workflowData: WorkflowInsert = {
       document_id: document.id,
-      generated_steps: workflowSteps,
+      generated_steps: workflowSteps as any,
       policy_valid: isValid,
     }
 
-    const { data: workflow, error: workflowError } = await supabase
+    const { data: workflowData2, error: workflowError } = await (supabase as any)
       .from('workflows')
       .insert(workflowData)
       .select()
       .single()
+
+    const workflow = workflowData2 as any
 
     if (workflowError || !workflow) {
       // Rollback: delete document and file
@@ -170,12 +174,14 @@ export async function POST(request: NextRequest) {
 
     // Fetch users by required roles for approval steps
     const requiredRoles = workflowSteps.map(step => step.requiredRole)
-    const { data: approvers, error: approversError } = await supabase
+    const { data: approversData, error: approversError } = await supabase
       .from('users')
       .select('id, role')
       .in('role', requiredRoles)
 
-    if (approversError || !approvers || approvers.length === 0) {
+    const approvers = (approversData ?? []) as any[]
+
+    if (approversError || approvers.length === 0) {
       // Rollback
       await supabase.from('workflows').delete().eq('id', workflow.id)
       await supabase.from('documents').delete().eq('id', document.id)
@@ -192,7 +198,7 @@ export async function POST(request: NextRequest) {
 
     // Create a map of role to user ID
     const roleToUserId = new Map<string, string>()
-    approvers.forEach(approver => {
+    approvers.forEach((approver: any) => {
       if (!roleToUserId.has(approver.role)) {
         roleToUserId.set(approver.role, approver.id)
       }
@@ -214,10 +220,12 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    const { data: approvals, error: approvalError } = await supabase
+    const { data: approvalsData, error: approvalError } = await (supabase as any)
       .from('approvals')
       .insert(approvalData)
       .select()
+
+    const approvals = approvalsData as any
 
     if (approvalError || !approvals) {
       // Rollback
@@ -248,7 +256,7 @@ export async function POST(request: NextRequest) {
       },
     }
 
-    await supabase.from('audit_logs').insert(auditData)
+    await (supabase as any).from('audit_logs').insert(auditData)
 
     // Return success response with created data
     return NextResponse.json(

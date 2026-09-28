@@ -67,11 +67,13 @@ export async function POST(request: NextRequest) {
       read: false,
     }
 
-    const { data: notification, error: notificationError } = await supabase
+    const { data: notificationData2, error: notificationError } = await (supabase as any)
       .from('notifications')
       .insert(notificationData)
       .select()
       .single()
+
+    const notification = notificationData2 as any
 
     if (notificationError || !notification) {
       return NextResponse.json(

@@ -10,7 +10,7 @@ export async function GET(
     const documentId = params.id;
 
     // Verify authenticated user
-    const { user } = await getSession(request);
+    const { user } = await getSession();
     if (!user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -18,14 +18,16 @@ export async function GET(
       );
     }
 
-    const supabase = createServerClient();
+    const supabase = await createServerClient();
 
     // Fetch the document row
-    const { data: document, error: docError } = await supabase
+    const { data, error: docError } = await supabase
       .from('documents')
       .select('*')
       .eq('id', documentId)
       .single();
+
+    const document = data as any;
 
     if (docError || !document) {
       return NextResponse.json(
@@ -45,11 +47,13 @@ export async function GET(
     }
 
     // Fetch the related workflow
-    const { data: workflow, error: workflowError } = await supabase
+    const { data: workflowData, error: workflowError } = await supabase
       .from('workflows')
       .select('*')
       .eq('document_id', documentId)
       .single();
+
+    const workflow = workflowData as any;
 
     if (workflowError || !workflow) {
       return NextResponse.json(
@@ -59,11 +63,13 @@ export async function GET(
     }
 
     // Fetch all approval rows for the workflow
-    const { data: approvals, error: approvalsError } = await supabase
+    const { data: approvalsData, error: approvalsError } = await supabase
       .from('approvals')
       .select('*')
       .eq('workflow_id', workflow.id)
       .order('step_order', { ascending: true });
+
+    const approvals = (approvalsData ?? []) as any[];
 
     if (approvalsError) {
       return NextResponse.json(
@@ -74,7 +80,7 @@ export async function GET(
 
     // Generate signed URLs for signatures
     const approvalsWithSignatures = await Promise.all(
-      (approvals || []).map(async (approval) => {
+      approvals.map(async (approval: any) => {
         if (approval.signature_url) {
           try {
             const viewable_signature_url = await getSignedUrl(

@@ -31,11 +31,13 @@ export async function POST(
     const supabase = await createServerClient()
 
     // Fetch the document
-    const { data: document, error: docError } = await supabase
+    const { data, error: docError } = await supabase
       .from('documents')
       .select('*')
       .eq('id', documentId)
       .single()
+
+    const document = data as any
 
     if (docError || !document) {
       return NextResponse.json(
@@ -61,11 +63,13 @@ export async function POST(
     }
 
     // Fetch the workflow for this document
-    const { data: workflow, error: workflowError } = await supabase
+    const { data: workflowData, error: workflowError } = await supabase
       .from('workflows')
       .select('*')
       .eq('document_id', documentId)
       .single()
+
+    const workflow = workflowData as any
 
     if (workflowError || !workflow) {
       return NextResponse.json(
@@ -86,12 +90,14 @@ export async function POST(
 
     // Fetch users by required roles for approval steps
     const requiredRoles = workflowSteps.map(step => step.requiredRole)
-    const { data: approvers, error: approversError } = await supabase
+    const { data: approversData, error: approversError } = await supabase
       .from('users')
       .select('id, role')
       .in('role', requiredRoles)
 
-    if (approversError || !approvers || approvers.length === 0) {
+    const approvers = (approversData ?? []) as any[]
+
+    if (approversError || approvers.length === 0) {
       return NextResponse.json(
         { error: 'No approvers found for the required roles' },
         { status: 500 }
@@ -100,7 +106,7 @@ export async function POST(
 
     // Create a map of role to user ID (take first user for each role)
     const roleToUserId = new Map<string, string>()
-    approvers.forEach(approver => {
+    approvers.forEach((approver: any) => {
       if (!roleToUserId.has(approver.role)) {
         roleToUserId.set(approver.role, approver.id)
       }
@@ -123,10 +129,12 @@ export async function POST(
     })
 
     // Insert approval rows
-    const { data: approvals, error: approvalsError } = await supabase
+    const { data: approvalsData, error: approvalsError } = await (supabase as any)
       .from('approvals')
       .insert(approvalData)
       .select()
+
+    const approvals = approvalsData as any
 
     if (approvalsError || !approvals) {
       return NextResponse.json(
@@ -136,16 +144,18 @@ export async function POST(
     }
 
     // Update document status to "pending"
-    const { data: updatedDocument, error: updateError } = await supabase
+    const { data: updatedDocumentData, error: updateError } = await (supabase as any)
       .from('documents')
       .update({ status: 'pending' })
       .eq('id', documentId)
       .select()
       .single()
 
+    const updatedDocument = updatedDocumentData as any
+
     if (updateError || !updatedDocument) {
       // Rollback: delete created approvals
-      await supabase.from('approvals').delete().eq('workflow_id', workflow.id)
+      await (supabase as any).from('approvals').delete().eq('workflow_id', workflow.id)
       
       return NextResponse.json(
         { error: updateError?.message || 'Failed to update document status' },
