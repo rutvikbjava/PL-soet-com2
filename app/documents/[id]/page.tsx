@@ -262,14 +262,26 @@ export default function DocumentDetailPage({
   const pendingApproval = approvals?.find((a) => a.status === "pending");
   const pendingStep = pendingApproval
     ? generatedSteps.find(
-        (s: any) => s.stepOrder === pendingApproval.step_order
+        (s: any) => {
+          const stepNum = s.stepOrder ?? s.step_order ?? s.StepOrder
+          return stepNum === pendingApproval.step_order
+        }
       )
     : null;
+  const stepRole = pendingStep
+    ? (pendingStep.requiredRole ?? pendingStep.required_role ?? pendingStep.role ?? '')
+    : '';
   const isMyTurnToApprove =
-    pendingStep &&
-    pendingApproval &&
-    currentUserRole &&
-    pendingStep.requiredRole?.toLowerCase() === currentUserRole?.toLowerCase();
+    !!pendingStep &&
+    !!pendingApproval &&
+    !!currentUserRole &&
+    stepRole.toLowerCase() === currentUserRole.toLowerCase();
+
+  console.log('pendingApproval:', pendingApproval);
+  console.log('pendingStep:', pendingStep);
+  console.log('stepRole:', stepRole);
+  console.log('currentUserRole:', currentUserRole);
+  console.log('isMyTurnToApprove:', isMyTurnToApprove);
 
   return (
     <div className="min-h-screen bg-college-bg">
