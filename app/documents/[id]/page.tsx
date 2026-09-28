@@ -25,6 +25,8 @@ interface Approval {
   signed_at: string | null;
   signature_url: string | null;
   viewable_signature_url?: string | null;
+  comment?: string | null;
+  acted_at?: string | null;
 }
 
 interface Workflow {
@@ -47,6 +49,7 @@ export default function DocumentDetailPage({
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
+  const [rejectionComment, setRejectionComment] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +195,10 @@ export default function DocumentDetailPage({
       const actRes = await fetch('/api/approvals/' + pendingApproval.id + '/act', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject' })
+        body: JSON.stringify({ 
+          action: 'reject',
+          comment: rejectionComment 
+        })
       })
       const actData = await actRes.json()
       if (!actRes.ok) throw new Error(actData.error || 'Failed to reject')
@@ -243,6 +249,7 @@ export default function DocumentDetailPage({
 
   const generatedSteps = workflow?.generated_steps ?? [];
   const pendingApproval = approvals?.find((a) => a.status === "pending");
+  const rejectedApproval = approvals?.find((a) => a.status === "rejected");
   const pendingStep = pendingApproval
     ? generatedSteps.find(
         (s: any) => {
@@ -276,6 +283,23 @@ export default function DocumentDetailPage({
         >
           ← Back to Dashboard
         </Link>
+
+        {/* Rejection Notice (if document is rejected) */}
+        {document.status === "rejected" && rejectedApproval && (
+          <div className="bg-red-50 border-l-4 border-red-500 rounded-r-lg p-4 mb-6">
+            <p className="text-sm font-semibold text-red-700 font-poppins mb-1">
+              Rejected by {generatedSteps.find((s: any) => {
+                const stepNum = s.stepOrder ?? s.step_order ?? s.StepOrder;
+                return stepNum === rejectedApproval.step_order;
+              })?.requiredRole || 'Approver'} on {rejectedApproval.acted_at ? formatDateTime(rejectedApproval.acted_at) : 'N/A'}
+            </p>
+            {rejectedApproval.comment && (
+              <p className="text-sm text-red-600 font-poppins mt-2">
+                {rejectedApproval.comment}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Section 1: Document Details */}
         <div className="card mb-6">
@@ -387,6 +411,12 @@ export default function DocumentDetailPage({
                           style={{ maxHeight: "60px" }}
                         />
                       )}
+
+                    {stepApproval?.comment && (
+                      <p className="text-xs text-gray-600 mt-2 font-poppins italic">
+                        Comment: {stepApproval.comment}
+                      </p>
+                    )}
                   </div>
 
                   {/* Status Badge */}
@@ -421,6 +451,20 @@ export default function DocumentDetailPage({
               onSave={(dataUrl) => setSavedSignatureDataUrl(dataUrl)}
             />
 
+            {/* Rejection Comment Textarea */}
+            <div className="mt-6">
+              <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                Reason for rejection (required)
+              </label>
+              <textarea
+                value={rejectionComment}
+                onChange={(e) => setRejectionComment(e.target.value)}
+                placeholder="Please provide a reason for rejecting this document..."
+                className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
+                rows={4}
+              />
+            </div>
+
             {/* Action Buttons */}
             <div className="flex gap-4 mt-4">
               <button
@@ -435,7 +479,7 @@ export default function DocumentDetailPage({
               <button
                 type="button"
                 onClick={handleReject}
-                disabled={isSubmitting}
+                disabled={!rejectionComment.trim() || isSubmitting}
                 className="btn-danger"
               >
                 Reject Document

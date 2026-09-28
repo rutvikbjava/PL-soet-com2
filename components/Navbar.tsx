@@ -56,6 +56,12 @@ export default function Navbar({ userEmail }: NavbarProps) {
           Upload Document
         </Link>
         <Link
+          href="/audit"
+          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+        >
+          Audit Trail
+        </Link>
+        <Link
           href="/analytics"
           className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
         >

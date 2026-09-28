@@ -23,12 +23,27 @@ interface PendingApprovalDocument {
   stepOrder: number;
 }
 
+interface ActionHistoryItem {
+  approvalId: string;
+  documentId: string;
+  documentTitle: string;
+  action: string;
+  comment: string | null;
+  actedAt: string;
+}
+
+interface RejectedDocument {
+  document: Document;
+  rejectionComment: string | null;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState("");
   const [userRole, setUserRole] = useState<string | null>(null);
   const [myDocuments, setMyDocuments] = useState<Document[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApprovalDocument[]>([]);
+  const [actionHistory, setActionHistory] = useState<ActionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -129,6 +144,45 @@ export default function DashboardPage() {
           setPendingApprovals(filteredApprovals);
         }
 
+        // Fetch Action History (approvals acted on by this user)
+        const { data: actedApprovals } = await supabase
+          .from("approvals")
+          .select(`
+            id,
+            status,
+            comment,
+            acted_at,
+            workflows (
+              documents (
+                id,
+                title
+              )
+            )
+          `)
+          .eq("approver_id", userId)
+          .in("status", ["approved", "rejected"])
+          .order("acted_at", { ascending: false })
+          .limit(20);
+
+        const history: ActionHistoryItem[] = [];
+        if (actedApprovals) {
+          for (const approval of actedApprovals as any[]) {
+            const workflow = approval.workflows;
+            const document = workflow?.documents;
+            if (document) {
+              history.push({
+                approvalId: approval.id,
+                documentId: document.id,
+                documentTitle: document.title,
+                action: approval.status,
+                comment: approval.comment ?? null,
+                actedAt: approval.acted_at,
+              });
+            }
+          }
+        }
+        setActionHistory(history);
+
         setLoading(false);
       } catch (err) {
         console.error("Dashboard error:", err);
@@ -146,6 +200,16 @@ export default function DashboardPage() {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const year = date.getFullYear();
     return `${day}/${month}/${year}`;
+  };
+
+  const formatDateTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
   };
 
   const getBadgeClass = (status: string) => {
@@ -191,6 +255,12 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  // Find rejected documents with comments
+  const rejectedDocs: RejectedDocument[] = [];
+  // We'll need to fetch approvals for rejected docs to get rejection comments
+  // For now, we'll just mark them as rejected without comments in this view
+  // To get rejection comments, we'd need to join with approvals table
 
   return (
     <div className="min-h-screen bg-college-bg">
@@ -305,9 +375,65 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* My Documents Table */}
+        {/* Your Action History Section */}
+        <div className="mb-8">
+          <h2 className="section-heading border-l-4 border-college-accent pl-3">
+            Your Action History
+          </h2>
+          <div className="card">
+            {actionHistory.length === 0 ? (
+              <p className="text-sm text-gray-500 font-poppins text-center py-6">
+                No action records yet
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className="table-header">Document</th>
+                      <th className="table-header">Action</th>
+                      <th className="table-header">Date</th>
+                      <th className="table-header">Comment</th>
+                      <th className="table-header">View</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actionHistory.map((item) => (
+                      <tr key={item.approvalId} className="table-row">
+                        <td className="px-4 py-3 text-sm font-medium text-college-text font-poppins">
+                          {item.documentTitle}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={getBadgeClass(item.action)}>
+                            {item.action}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 font-poppins">
+                          {formatDateTime(item.actedAt)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 font-poppins italic">
+                          {item.comment || '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Link
+                            href={`/documents/${item.documentId}`}
+                            className="btn-secondary text-xs"
+                          >
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* My Uploaded Documents */}
         <div>
-          <h2 className="section-heading">My Documents</h2>
+          <h2 className="section-heading">My Uploaded Documents</h2>
           <div className="card">
             {myDocuments.length === 0 ? (
               // Empty State
@@ -354,8 +480,10 @@ export default function DashboardPage() {
                   <tbody>
                     {myDocuments.map((doc) => (
                       <tr key={doc.id} className="table-row">
-                        <td className="px-4 py-3 text-sm font-medium text-college-text font-poppins">
-                          {doc.title}
+                        <td className="px-4 py-3">
+                          <div className="text-sm font-medium text-college-text font-poppins">
+                            {doc.title}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 font-poppins">
                           {doc.type}

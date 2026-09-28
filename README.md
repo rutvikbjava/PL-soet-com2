@@ -60,3 +60,6 @@ This command will:
 - Build your Next.js application
 - Deploy to Vercel's production environment
 - Use the environment variables configured in your Vercel project settings
+
+
+ok but there is an thing after approving or rejecting there is no record showed on dashboard and what approvals are been arrived at that perticular user and there i want to add a new thing to reject witha comment soo that a applicant can track the issue and also one thing that when a new document is uploaded the audit trail is only showing that perticular document trails but i want user specific trails that what activities happening in his login and what activities are done over his uploaded document

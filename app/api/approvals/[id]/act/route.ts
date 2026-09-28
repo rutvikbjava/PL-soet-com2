@@ -20,6 +20,10 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
 
+    if (action === 'reject' && (!comment || comment.trim() === '')) {
+      return NextResponse.json({ error: 'Comment is required when rejecting' }, { status: 400 })
+    }
+
     const supabase = createAdminClient()
 
     const { data: approval } = await supabase
@@ -93,12 +97,12 @@ export async function POST(
 
       documentStatus = 'rejected'
 
-      await supabase
-        .from('audit_logs')
+      await (supabase.from('audit_logs') as any)
         .insert({
           document_id: documentId,
           actor_id: user.id,
-          action: 'document_rejected',
+          action: 'rejected',
+          details: comment ?? null,
           metadata: { 
             approval_id: approvalId, 
             comment: comment ?? null 
@@ -122,8 +126,7 @@ export async function POST(
 
         documentStatus = 'approved'
 
-        await supabase
-          .from('audit_logs')
+        await (supabase.from('audit_logs') as any)
           .insert({
             document_id: documentId,
             actor_id: user.id,
@@ -131,8 +134,7 @@ export async function POST(
             metadata: { approval_id: approvalId }
           })
       } else {
-        await supabase
-          .from('audit_logs')
+        await (supabase.from('audit_logs') as any)
           .insert({
             document_id: documentId,
             actor_id: user.id,
