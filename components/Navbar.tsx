@@ -1,14 +1,39 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 
 interface NavbarProps {
   userEmail: string;
+  userRole?: string | null;
 }
 
-export default function Navbar({ userEmail }: NavbarProps) {
+export default function Navbar({ userEmail, userRole }: NavbarProps) {
+  const [notificationCount, setNotificationCount] = useState<number>(0);
+
+  useEffect(() => {
+    const fetchNotificationCount = async () => {
+      if (!userEmail) return;
+
+      try {
+        const supabase = createBrowserClient();
+        const { data } = await supabase
+          .from("assignment_notifications")
+          .select("id")
+          .eq("user_email", userEmail)
+          .eq("is_read", false);
+
+        setNotificationCount((data ?? []).length);
+      } catch (error) {
+        console.error("Error fetching notification count:", error);
+      }
+    };
+
+    fetchNotificationCount();
+  }, [userEmail]);
+
   const handleLogout = async () => {
     try {
       const supabase = createBrowserClient();
@@ -19,6 +44,8 @@ export default function Navbar({ userEmail }: NavbarProps) {
       window.location.href = "/login";
     }
   };
+
+  const isStudent = userRole === "student";
 
   return (
     <nav className="bg-white border-b border-college-peach shadow-sm h-[70px] px-8 flex items-center justify-between">
@@ -50,27 +77,43 @@ export default function Navbar({ userEmail }: NavbarProps) {
           Dashboard
         </Link>
         <Link
-          href="/upload"
+          href="/assignments"
           className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
         >
-          Upload Document
+          Assignments
         </Link>
-        <Link
-          href="/audit"
-          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-        >
-          Audit Trail
-        </Link>
-        <Link
-          href="/analytics"
-          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-        >
-          Analytics
-        </Link>
+        {!isStudent && (
+          <>
+            <Link
+              href="/upload"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+            >
+              Upload Document
+            </Link>
+            <Link
+              href="/audit"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+            >
+              Audit Trail
+            </Link>
+            <Link
+              href="/analytics"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+            >
+              Analytics
+            </Link>
+          </>
+        )}
       </div>
 
-      {/* Right side - User email and logout */}
+      {/* Right side - Notifications, User email and logout */}
       <div className="flex items-center gap-4">
+        <Link
+          href="/notifications"
+          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+        >
+          🔔 {notificationCount > 0 && <span>{notificationCount}</span>}
+        </Link>
         <span className="text-xs text-gray-500 font-poppins hidden sm:inline">
           {userEmail}
         </span>

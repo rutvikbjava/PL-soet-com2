@@ -76,6 +76,12 @@ export default function DashboardPage() {
         const role = (userData as any)?.role || null;
         setUserRole(role);
 
+        // Redirect students to /assignments
+        if (role === "student") {
+          router.push("/assignments");
+          return;
+        }
+
         // Fetch My Documents
         const { data: myDocs, error: myDocsError } = await supabase
           .from("documents")
@@ -246,7 +252,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-college-bg">
-        <Navbar userEmail={userEmail} />
+        <Navbar userEmail={userEmail} userRole={userRole} />
         <div className="max-w-6xl mx-auto px-6 py-8">
           <div className="card text-center">
             <p className="text-red-500 font-poppins">{error}</p>
@@ -264,7 +270,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-college-bg">
-      <Navbar userEmail={userEmail} />
+      <Navbar userEmail={userEmail} userRole={userRole} />
 
       <main className="max-w-6xl mx-auto px-6 py-8">
         {/* Page Header */}
