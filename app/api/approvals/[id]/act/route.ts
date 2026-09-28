@@ -1,272 +1,171 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
-import { getSession } from '@/lib/auth';
-import { sendNotification } from '@/lib/notify';
+import { NextRequest, NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase'
+import { getSession } from '@/lib/auth'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const approvalId = params.id;
-    const body = await request.json();
-    const { action, signature_url, comment } = body;
-
-    // Validate action
-    if (!action || !['approve', 'reject'].includes(action)) {
-      return NextResponse.json(
-        { error: 'Invalid action. Must be "approve" or "reject".' },
-        { status: 400 }
-      );
-    }
-
-    // Validate signature_url for approve action
-    if (action === 'approve' && !signature_url) {
-      return NextResponse.json(
-        { error: 'signature_url is required when approving.' },
-        { status: 400 }
-      );
-    }
-
-    // Verify authenticated user
-    const { user, role } = await getSession();
+    const { user } = await getSession()
     if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const supabase = (await createServerClient()) as any;
+    const approvalId = params.id
+    const body = await request.json()
+    const { action, signature_url, comment } = body
 
-    // Fetch the approval row
-    const { data, error: fetchError } = await supabase
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+    }
+
+    const supabase = createAdminClient()
+
+    const { data: approval } = await supabase
       .from('approvals')
-      .select('*, workflows!inner(document_id)')
+      .select('id, status, workflow_id, step_order')
       .eq('id', approvalId)
-      .eq('approver_id', user.id)
-      .single();
+      .single()
 
-    const approval = data as any;
-
-    if (fetchError || !approval) {
-      return NextResponse.json(
-        { error: 'Approval not found or access denied.' },
-        { status: 404 }
-      );
+    if (!approval) {
+      return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
     }
 
-    // Verify approval is pending
     if (approval.status !== 'pending') {
-      return NextResponse.json(
-        { error: 'Approval has already been processed.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Approval already acted on' }, { status: 400 })
     }
 
-    const documentId = approval.workflows.document_id;
-    const now = new Date().toISOString();
+    const { data: workflow } = await supabase
+      .from('workflows')
+      .select('id, document_id')
+      .eq('id', approval.workflow_id)
+      .single()
 
-    // Update the approval row
-    const updateData: Record<string, any> = {
-      status: action,
+    if (!workflow || !workflow.document_id) {
+      return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
+    }
+
+    const documentId = workflow.document_id
+    const workflowId = workflow.id
+    const now = new Date().toISOString()
+
+    const updateData: {
+      status: string
+      acted_at: string
+      signature_url?: string
+      signed_at?: string
+      comment?: string
+    } = {
+      status: action === 'approve' ? 'approved' : 'rejected',
       acted_at: now,
-    };
+    }
 
-    if (action === 'approve') {
-      updateData.signature_url = signature_url;
-      updateData.signed_at = now;
+    if (action === 'approve' && signature_url) {
+      updateData.signature_url = signature_url
+      updateData.signed_at = now
     }
 
     if (comment) {
-      updateData.comment = comment;
+      updateData.comment = comment
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await (supabase as any)
       .from('approvals')
       .update(updateData)
-      .eq('id', approvalId);
+      .eq('id', approvalId)
 
     if (updateError) {
+      console.error('Update approval error:', JSON.stringify(updateError))
       return NextResponse.json(
-        { error: 'Failed to update approval.' },
+        { error: 'Failed to update approval' },
         { status: 500 }
-      );
+      )
     }
 
-    let documentStatus = 'pending';
+    let documentStatus = 'pending'
 
-    // Handle rejection
     if (action === 'reject') {
-      // Update document status to rejected
-      const { error: docUpdateError } = await supabase
+      await supabase
         .from('documents')
         .update({ status: 'rejected' })
-        .eq('id', documentId);
+        .eq('id', documentId)
 
-      if (docUpdateError) {
-        return NextResponse.json(
-          { error: 'Failed to update document status.' },
-          { status: 500 }
-        );
-      }
+      documentStatus = 'rejected'
 
-      documentStatus = 'rejected';
-
-      // Insert audit log for rejection
-      const { error: auditError } = await supabase
+      await supabase
         .from('audit_logs')
         .insert({
           document_id: documentId,
-          user_id: user.id,
+          actor_id: user.id,
           action: 'document_rejected',
-          metadata: {
-            approval_id: approvalId,
-            comment: comment || null,
-          },
-        });
-
-      if (auditError) {
-        console.error('Failed to insert audit log:', auditError);
-      }
-
-      // Fetch document to get creator_id for notification
-      const { data: document } = await supabase
-        .from('documents')
-        .select('creator_id')
-        .eq('id', documentId)
-        .single();
-
-      if (document) {
-        await sendNotification(
-          document.creator_id,
-          `Your document has been rejected by ${role}.${comment ? ` Comment: ${comment}` : ''}`,
-          documentId
-        );
-      }
-    }
-
-    // Handle approval
-    if (action === 'approve') {
-      // Fetch all approvals for the same workflow
-      const { data: allApprovals, error: fetchAllError } = await supabase
+          metadata: { 
+            approval_id: approvalId, 
+            comment: comment ?? null 
+          }
+        })
+    } else {
+      const { data: allApprovals } = await supabase
         .from('approvals')
-        .select('id, status, step_order')
-        .eq('workflow_id', approval.workflow_id)
-        .order('step_order');
+        .select('status')
+        .eq('workflow_id', workflowId)
 
-      if (fetchAllError || !allApprovals) {
-        return NextResponse.json(
-          { error: 'Failed to fetch workflow approvals.' },
-          { status: 500 }
-        );
-      }
-
-      // Check if all approvals are approved
-      const allApproved = allApprovals.every(
-        (appr: any) => appr.status === 'approved'
-      );
+      const allApproved = allApprovals?.every(
+        (a: { status: string }) => a.status === 'approved'
+      )
 
       if (allApproved) {
-        // Update document status to approved
-        const { error: docUpdateError } = await supabase
+        await supabase
           .from('documents')
           .update({ status: 'approved' })
-          .eq('id', documentId);
-
-        if (docUpdateError) {
-          return NextResponse.json(
-            { error: 'Failed to update document status.' },
-            { status: 500 }
-          );
-        }
-
-        documentStatus = 'approved';
-
-        // Insert audit log for document approval
-        const { error: auditError } = await supabase
-          .from('audit_logs')
-          .insert({
-            document_id: documentId,
-            user_id: user.id,
-            action: 'document_approved',
-            metadata: {
-              approval_id: approvalId,
-            },
-          });
-
-        if (auditError) {
-          console.error('Failed to insert audit log:', auditError);
-        }
-
-        // Notify document creator
-        const { data: document } = await supabase
-          .from('documents')
-          .select('creator_id')
           .eq('id', documentId)
-          .single();
 
-        if (document) {
-          await sendNotification(
-            document.creator_id,
-            `Your document has been fully approved and is now complete.`,
-            documentId
-          );
-        }
-      } else {
-        // Not all approved yet - step approval
-        documentStatus = 'pending';
+        documentStatus = 'approved'
 
-        // Insert audit log for step approval
-        const { error: auditError } = await supabase
+        await supabase
           .from('audit_logs')
           .insert({
             document_id: documentId,
-            user_id: user.id,
+            actor_id: user.id,
+            action: 'document_approved',
+            metadata: { approval_id: approvalId }
+          })
+      } else {
+        await supabase
+          .from('audit_logs')
+          .insert({
+            document_id: documentId,
+            actor_id: user.id,
             action: 'step_approved',
             metadata: {
               approval_id: approvalId,
-              step_order: approval.step_order,
-            },
-          });
-
-        if (auditError) {
-          console.error('Failed to insert audit log:', auditError);
-        }
-
-        // Notify document creator of step approval
-        const { data: document } = await supabase
-          .from('documents')
-          .select('creator_id')
-          .eq('id', documentId)
-          .single();
-
-        if (document) {
-          await sendNotification(
-            document.creator_id,
-            `Your document has been approved by ${role} (step ${approval.step_order}). Awaiting further approvals.`,
-            documentId
-          );
-        }
+              step_order: approval.step_order
+            }
+          })
       }
     }
 
-    // Fetch updated approval for response
-    const { data: updatedApproval } = await supabase
-      .from('approvals')
-      .select('*')
-      .eq('id', approvalId)
-      .single();
+    await supabase
+      .from('notifications')
+      .insert({
+        user_id: user.id,
+        message: action === 'approve'
+          ? 'Document step approved successfully'
+          : 'Document has been rejected',
+        document_id: documentId,
+        read: false
+      })
 
     return NextResponse.json({
-      approval: updatedApproval,
+      success: true,
       documentStatus,
-    });
-  } catch (error) {
-    console.error('Error processing approval action:', error);
+      approvalId
+    })
+  } catch (err) {
+    console.error('Approval act error:', err)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
-    );
+    )
   }
 }
