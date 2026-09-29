@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
+import { LANGUAGES } from "@/lib/languages";
 import Navbar from "@/components/Navbar";
 
 interface Assignment {
@@ -16,6 +17,29 @@ interface Assignment {
   attachment_url: string | null;
   attachment_name: string | null;
   created_by_email: string;
+  type?: string;
+  language_id?: number | null;
+  language_name?: string | null;
+}
+
+interface TestCase {
+  id: string;
+  assignment_id: string;
+  input: string;
+  expected_output: string;
+  sort_order: number;
+}
+
+interface TestResult {
+  index: number;
+  passed: boolean;
+  status: string;
+  input: string;
+  expected: string;
+  actual: string;
+  error: string;
+  time: number;
+  memory: number;
 }
 
 interface Submission {
@@ -30,6 +54,13 @@ interface Submission {
   feedback: string | null;
   submitted_at: string;
   graded_at: string | null;
+  code_text?: string | null;
+  tests_passed?: number | null;
+  tests_total?: number | null;
+  test_results?: TestResult[] | null;
+  compile_error?: string | null;
+  max_time?: number | null;
+  max_memory?: number | null;
 }
 
 interface StudentWithSubmission {
@@ -49,12 +80,14 @@ export default function AssignmentDetailPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [studentsWithSubmissions, setStudentsWithSubmissions] = useState<StudentWithSubmission[]>([]);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [gradingMarks, setGradingMarks] = useState<number>(0);
   const [gradingFeedback, setGradingFeedback] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [runningTests, setRunningTests] = useState(false);
   const [grading, setGrading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -103,6 +136,17 @@ export default function AssignmentDetailPage() {
       }
 
       setAssignment(assignmentData as Assignment);
+
+      // If code assignment and student, fetch test cases
+      if (role === "student" && (assignmentData as any).type === "code") {
+        const { data: testCasesData } = await supabase
+          .from("test_cases")
+          .select("*")
+          .eq("assignment_id", assignmentId)
+          .order("sort_order", { ascending: true });
+
+        setTestCases((testCasesData ?? []) as TestCase[]);
+      }
 
       // If student, fetch submissions
       if (role === "student") {
@@ -189,6 +233,60 @@ export default function AssignmentDetailPage() {
     try {
       const supabase = createBrowserClient();
 
+      // For code assignments, run tests first
+      let codeText: string | null = null;
+      let testsPassed: number | null = null;
+      let testsTotal: number | null = null;
+      let testResults: TestResult[] | null = null;
+      let compileError: string | null = null;
+      let maxTime: number | null = null;
+      let maxMemory: number | null = null;
+
+      if (assignment.type === "code" && assignment.language_id) {
+        setRunningTests(true);
+
+        try {
+          // Read file as text
+          codeText = await file.text();
+
+          // Run code against test cases
+          const runResponse = await fetch("/api/run-code", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              language_id: assignment.language_id,
+              code: codeText,
+              tests: testCases.map((tc) => ({
+                input: tc.input,
+                expected_output: tc.expected_output,
+              })),
+            }),
+          });
+
+          if (!runResponse.ok) {
+            const errorData = await runResponse.json();
+            throw new Error(errorData.error || "Code execution failed");
+          }
+
+          const runResult = await runResponse.json();
+          testsPassed = runResult.passed;
+          testsTotal = runResult.total;
+          testResults = runResult.results;
+          compileError = runResult.compile_error;
+          maxTime = runResult.max_time;
+          maxMemory = runResult.max_memory;
+        } catch (runError: any) {
+          setRunningTests(false);
+          setSubmitError(runError.message || "Failed to run tests");
+          setSubmitting(false);
+          return;
+        } finally {
+          setRunningTests(false);
+        }
+      }
+
       // Upload file
       const timestamp = Date.now();
       const fileName = `${userId}-${timestamp}-${file.name}`;
@@ -212,16 +310,30 @@ export default function AssignmentDetailPage() {
       // Calculate attempt number
       const attemptNumber = submissions.length + 1;
 
+      // Prepare submission data
+      const submissionData: any = {
+        assignment_id: assignmentId,
+        student_email: userEmail,
+        file_url: fileUrl,
+        file_name: file.name,
+        attempt: attemptNumber,
+        status: "submitted",
+      };
+
+      // Add code assignment fields if applicable
+      if (assignment.type === "code") {
+        submissionData.code_text = codeText;
+        submissionData.tests_passed = testsPassed;
+        submissionData.tests_total = testsTotal;
+        submissionData.test_results = testResults;
+        submissionData.compile_error = compileError;
+        submissionData.max_time = maxTime;
+        submissionData.max_memory = maxMemory;
+      }
+
       // Insert submission
       const { error: insertError } = await (supabase.from("submissions") as any)
-        .insert({
-          assignment_id: assignmentId,
-          student_email: userEmail,
-          file_url: fileUrl,
-          file_name: file.name,
-          attempt: attemptNumber,
-          status: "submitted",
-        });
+        .insert(submissionData);
 
       if (insertError) {
         throw new Error("Failed to submit: " + insertError.message);
@@ -346,7 +458,27 @@ export default function AssignmentDetailPage() {
       setGradingError(null);
     } else {
       setExpandedRow(email);
-      setGradingMarks(submission?.marks ?? 0);
+
+      // For code assignments, pre-fill with suggested marks if marks is empty
+      if (
+        assignment?.type === "code" &&
+        submission &&
+        (submission.marks === null || submission.marks === undefined) &&
+        !submission.compile_error &&
+        submission.tests_passed !== null &&
+        submission.tests_passed !== undefined &&
+        submission.tests_total !== null &&
+        submission.tests_total !== undefined &&
+        submission.tests_total > 0
+      ) {
+        const suggestedMarks = Math.round(
+          (submission.tests_passed / submission.tests_total) * assignment.max_marks
+        );
+        setGradingMarks(suggestedMarks);
+      } else {
+        setGradingMarks(submission?.marks ?? 0);
+      }
+
       setGradingFeedback(submission?.feedback ?? "");
       setGradingError(null);
     }
@@ -535,6 +667,9 @@ export default function AssignmentDetailPage() {
                     <th className="table-header">Attempts</th>
                     <th className="table-header">File</th>
                     <th className="table-header">Status</th>
+                    {assignment.type === "code" && (
+                      <th className="table-header">Auto Result</th>
+                    )}
                     <th className="table-header">Marks</th>
                     <th className="table-header">Actions</th>
                   </tr>
@@ -587,6 +722,34 @@ export default function AssignmentDetailPage() {
                               <span className="text-gray-400 text-sm">—</span>
                             )}
                           </td>
+                          {assignment.type === "code" && (
+                            <td className="px-4 py-3 text-sm font-poppins">
+                              {sub ? (
+                                sub.compile_error ? (
+                                  <span className="text-red-600 font-semibold">
+                                    Compile error
+                                  </span>
+                                ) : sub.tests_passed !== null &&
+                                  sub.tests_total !== null ? (
+                                  <span
+                                    className={
+                                      sub.tests_passed === sub.tests_total
+                                        ? "text-green-600 font-semibold"
+                                        : sub.tests_passed === 0
+                                        ? "text-red-600 font-semibold"
+                                        : "text-orange-600 font-semibold"
+                                    }
+                                  >
+                                    {sub.tests_passed}/{sub.tests_total} tests
+                                  </span>
+                                ) : (
+                                  "—"
+                                )
+                              ) : (
+                                <span className="text-gray-400 text-sm">—</span>
+                              )}
+                            </td>
+                          )}
                           <td className="px-4 py-3 text-sm font-semibold text-college-accent font-poppins">
                             {sub?.marks !== null && sub?.marks !== undefined
                               ? `${sub.marks}/${assignment.max_marks}`
@@ -607,11 +770,172 @@ export default function AssignmentDetailPage() {
                         </tr>
                         {isExpanded && sub && (
                           <tr key={`${student.email}-form`}>
-                            <td colSpan={7} className="px-4 py-4 bg-college-peach">
-                              <div className="max-w-2xl">
+                            <td
+                              colSpan={assignment.type === "code" ? 8 : 7}
+                              className="px-4 py-4 bg-college-peach"
+                            >
+                              <div className="max-w-4xl">
                                 <h3 className="text-sm font-semibold text-college-accent font-poppins mb-3">
                                   Grade Submission
                                 </h3>
+
+                                {/* Code Display (Code Assignments Only) */}
+                                {assignment.type === "code" && sub.code_text && (
+                                  <div className="mb-4">
+                                    <h4 className="text-xs font-semibold text-gray-700 font-poppins mb-2">
+                                      Submitted Code
+                                    </h4>
+                                    <pre className="text-xs font-mono bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto max-h-64 overflow-y-auto">
+                                      {sub.code_text}
+                                    </pre>
+                                  </div>
+                                )}
+
+                                {/* Test Results (Code Assignments Only) */}
+                                {assignment.type === "code" && (
+                                  <div className="mb-4">
+                                    <h4 className="text-xs font-semibold text-gray-700 font-poppins mb-2">
+                                      Auto-Grading Result
+                                    </h4>
+                                    {sub.compile_error ? (
+                                      <div className="bg-red-50 border-2 border-red-300 rounded-lg p-3">
+                                        <p className="text-xs font-semibold text-red-700 font-poppins mb-1">
+                                          Compilation Error
+                                        </p>
+                                        <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap overflow-x-auto">
+                                          {sub.compile_error}
+                                        </pre>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="grid grid-cols-3 gap-3 mb-3">
+                                          <div className="text-center p-2 bg-blue-50 rounded">
+                                            <p className="text-xs text-gray-600 font-poppins">
+                                              Tests Passed
+                                            </p>
+                                            <p className="text-lg font-bold text-college-secondary font-poppins">
+                                              {sub.tests_passed} / {sub.tests_total}
+                                            </p>
+                                          </div>
+                                          <div className="text-center p-2 bg-green-50 rounded">
+                                            <p className="text-xs text-gray-600 font-poppins">
+                                              Max Time
+                                            </p>
+                                            <p className="text-lg font-bold text-green-600 font-poppins">
+                                              {sub.max_time?.toFixed(3)} s
+                                            </p>
+                                          </div>
+                                          <div className="text-center p-2 bg-purple-50 rounded">
+                                            <p className="text-xs text-gray-600 font-poppins">
+                                              Max Memory
+                                            </p>
+                                            <p className="text-lg font-bold text-purple-600 font-poppins">
+                                              {sub.max_memory} KB
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        {sub.test_results &&
+                                          sub.test_results.length > 0 && (
+                                            <div className="overflow-x-auto max-h-48 overflow-y-auto border border-gray-300 rounded">
+                                              <table className="w-full text-xs">
+                                                <thead className="bg-gray-100 sticky top-0">
+                                                  <tr>
+                                                    <th className="px-2 py-1 text-left">#</th>
+                                                    <th className="px-2 py-1 text-left">
+                                                      Status
+                                                    </th>
+                                                    <th className="px-2 py-1 text-left">
+                                                      Expected
+                                                    </th>
+                                                    <th className="px-2 py-1 text-left">
+                                                      Actual
+                                                    </th>
+                                                    <th className="px-2 py-1 text-left">
+                                                      Error
+                                                    </th>
+                                                    <th className="px-2 py-1 text-left">
+                                                      Time
+                                                    </th>
+                                                    <th className="px-2 py-1 text-left">
+                                                      Memory
+                                                    </th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {sub.test_results.map(
+                                                    (result: TestResult) => (
+                                                      <tr
+                                                        key={result.index}
+                                                        className="border-t"
+                                                      >
+                                                        <td className="px-2 py-1 font-semibold">
+                                                          {result.index + 1}
+                                                        </td>
+                                                        <td className="px-2 py-1">
+                                                          <span
+                                                            className={`text-xs px-2 py-0.5 rounded ${
+                                                              result.passed
+                                                                ? "bg-green-100 text-green-700"
+                                                                : "bg-red-100 text-red-700"
+                                                            }`}
+                                                          >
+                                                            {result.status}
+                                                          </span>
+                                                        </td>
+                                                        <td className="px-2 py-1">
+                                                          <pre className="font-mono text-xs max-w-xs overflow-x-auto">
+                                                            {result.expected || "—"}
+                                                          </pre>
+                                                        </td>
+                                                        <td className="px-2 py-1">
+                                                          <pre className="font-mono text-xs max-w-xs overflow-x-auto">
+                                                            {result.actual || "—"}
+                                                          </pre>
+                                                        </td>
+                                                        <td className="px-2 py-1">
+                                                          <pre className="font-mono text-xs text-red-600 max-w-xs overflow-x-auto">
+                                                            {result.error || "—"}
+                                                          </pre>
+                                                        </td>
+                                                        <td className="px-2 py-1">
+                                                          {result.time?.toFixed(3)}s
+                                                        </td>
+                                                        <td className="px-2 py-1">
+                                                          {result.memory}KB
+                                                        </td>
+                                                      </tr>
+                                                    )
+                                                  )}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          )}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Suggested Marks (Code Assignments Only) */}
+                                {assignment.type === "code" &&
+                                  !sub.compile_error &&
+                                  sub.tests_passed !== null &&
+                                  sub.tests_passed !== undefined &&
+                                  sub.tests_total !== null &&
+                                  sub.tests_total !== undefined &&
+                                  sub.tests_total > 0 && (
+                                    <div className="mb-4">
+                                      <p className="text-xs text-blue-600 font-poppins font-semibold">
+                                        Suggested marks:{" "}
+                                        {Math.round(
+                                          (sub.tests_passed / sub.tests_total) *
+                                            assignment.max_marks
+                                        )}{" "}
+                                        / {assignment.max_marks}
+                                      </p>
+                                    </div>
+                                  )}
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                   <div>
                                     <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
@@ -752,6 +1076,32 @@ export default function AssignmentDetailPage() {
             </div>
           </div>
 
+          {/* Code Assignment Info */}
+          {assignment.type === "code" && assignment.language_name && (
+            <div className="border-t border-college-peach pt-4 mb-4">
+              <div className="flex items-center gap-4">
+                <div>
+                  <span className="text-xs text-gray-500 font-poppins">Language:</span>
+                  <p className="text-sm font-semibold text-college-secondary font-poppins">
+                    {assignment.language_name}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 font-poppins">Grading:</span>
+                  <p className="text-sm font-semibold text-green-600 font-poppins">
+                    Auto-graded with test cases
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500 font-poppins">Test Cases:</span>
+                  <p className="text-sm font-semibold text-college-accent font-poppins">
+                    {testCases.length} test cases
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-college-peach pt-4 mb-4">
             <h3 className="text-sm font-semibold text-college-accent font-poppins mb-2">
               Description
@@ -790,6 +1140,9 @@ export default function AssignmentDetailPage() {
                     <th className="table-header">File</th>
                     <th className="table-header">Submitted At</th>
                     <th className="table-header">Status</th>
+                    {assignment.type === "code" && (
+                      <th className="table-header">Tests</th>
+                    )}
                     <th className="table-header">Marks</th>
                     <th className="table-header">Feedback</th>
                   </tr>
@@ -822,7 +1175,25 @@ export default function AssignmentDetailPage() {
                           {submission.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-college-accent font-poppins">
+                      {assignment.type === "code" && (
+                        <td className="px-4 py-3 text-sm font-poppins">
+                          {submission.tests_passed !== null &&
+                          submission.tests_total !== null ? (
+                            <span
+                              className={
+                                submission.tests_passed === submission.tests_total
+                                  ? "text-green-600 font-semibold"
+                                  : "text-orange-600 font-semibold"
+                              }
+                            >
+                              {submission.tests_passed}/{submission.tests_total}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      )}
+                      <td className="px-4 py-3 text-sm text-gray-600 font-poppins">
                         {submission.marks !== null
                           ? `${submission.marks}/${assignment.max_marks}`
                           : "—"}
@@ -838,6 +1209,112 @@ export default function AssignmentDetailPage() {
           </div>
         )}
 
+        {/* Latest Submission Result (Code Assignment) */}
+        {assignment.type === "code" && submissions.length > 0 && (
+          <div className="card mb-6">
+            <h2 className="section-heading mb-4">Latest Submission Result</h2>
+            {submissions[0].compile_error ? (
+              <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-red-700 font-poppins mb-2">
+                  Compilation Error
+                </h3>
+                <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap overflow-x-auto">
+                  {submissions[0].compile_error}
+                </pre>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="text-center p-3 bg-blue-50 rounded-lg">
+                    <p className="text-xs text-gray-600 font-poppins mb-1">
+                      Tests Passed
+                    </p>
+                    <p className="text-2xl font-bold text-college-secondary font-poppins">
+                      {submissions[0].tests_passed} / {submissions[0].tests_total}
+                    </p>
+                  </div>
+                  <div className="text-center p-3 bg-green-50 rounded-lg">
+                    <p className="text-xs text-gray-600 font-poppins mb-1">
+                      Max Time
+                    </p>
+                    <p className="text-2xl font-bold text-green-600 font-poppins">
+                      {submissions[0].max_time?.toFixed(3)} s
+                    </p>
+                  </div>
+                  <div className="text-center p-3 bg-purple-50 rounded-lg">
+                    <p className="text-xs text-gray-600 font-poppins mb-1">
+                      Max Memory
+                    </p>
+                    <p className="text-2xl font-bold text-purple-600 font-poppins">
+                      {submissions[0].max_memory} KB
+                    </p>
+                  </div>
+                </div>
+
+                {submissions[0].test_results &&
+                  submissions[0].test_results.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr>
+                            <th className="table-header">#</th>
+                            <th className="table-header">Status</th>
+                            <th className="table-header">Expected</th>
+                            <th className="table-header">Actual</th>
+                            <th className="table-header">Error</th>
+                            <th className="table-header">Time (s)</th>
+                            <th className="table-header">Memory (KB)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {submissions[0].test_results.map((result: TestResult) => (
+                            <tr key={result.index} className="table-row">
+                              <td className="px-4 py-3 text-sm font-semibold text-college-text font-poppins">
+                                {result.index + 1}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                                    result.passed
+                                      ? "bg-green-100 text-green-700"
+                                      : "bg-red-100 text-red-700"
+                                  }`}
+                                >
+                                  {result.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <pre className="text-xs font-mono text-gray-700 max-w-xs overflow-x-auto">
+                                  {result.expected || "—"}
+                                </pre>
+                              </td>
+                              <td className="px-4 py-3">
+                                <pre className="text-xs font-mono text-gray-700 max-w-xs overflow-x-auto">
+                                  {result.actual || "—"}
+                                </pre>
+                              </td>
+                              <td className="px-4 py-3">
+                                <pre className="text-xs font-mono text-red-600 max-w-xs overflow-x-auto">
+                                  {result.error || "—"}
+                                </pre>
+                              </td>
+                              <td className="px-4 py-3 text-sm font-poppins text-gray-600">
+                                {result.time?.toFixed(3)}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-poppins text-gray-600">
+                                {result.memory}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+              </>
+            )}
+          </div>
+        )}
+
         {/* Submit Form or Message */}
         {canSubmit() ? (
           <div className="card">
@@ -847,12 +1324,29 @@ export default function AssignmentDetailPage() {
             <form onSubmit={handleSubmit}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
-                  Upload File <span className="text-red-500">*</span>
+                  Upload File{" "}
+                  {assignment.type === "code" &&
+                    assignment.language_name &&
+                    LANGUAGES.find((l) => l.id === assignment.language_id)?.ext && (
+                      <span className="text-xs text-gray-500">
+                        (
+                        {
+                          LANGUAGES.find((l) => l.id === assignment.language_id)
+                            ?.ext
+                        }{" "}
+                        file)
+                      </span>
+                    )}{" "}
+                  <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="file"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.py,.java,.js,.c,.cpp,.txt"
+                  accept={
+                    assignment.type === "code" && assignment.language_id
+                      ? LANGUAGES.find((l) => l.id === assignment.language_id)?.ext
+                      : ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.py,.java,.js,.c,.cpp,.txt"
+                  }
                   className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
                   required
                 />
@@ -869,8 +1363,18 @@ export default function AssignmentDetailPage() {
                 </div>
               )}
 
-              <button type="submit" disabled={submitting} className="btn-primary">
-                {submitting ? "Submitting..." : "Submit Assignment"}
+              <button
+                type="submit"
+                disabled={submitting || runningTests}
+                className="btn-primary"
+              >
+                {runningTests
+                  ? "Running tests..."
+                  : submitting
+                  ? "Submitting..."
+                  : assignment.type === "code"
+                  ? "Run & Submit"
+                  : "Submit Assignment"}
               </button>
             </form>
           </div>

@@ -21,6 +21,8 @@ interface Submission {
   status: string;
   marks: number | null;
   submitted_at: string;
+  tests_passed?: number | null;
+  tests_total?: number | null;
 }
 
 interface AssignmentStats {
@@ -51,6 +53,7 @@ export default function AssignmentAnalyticsPage() {
   const [overallSubmissionPercent, setOverallSubmissionPercent] = useState(0);
   const [pendingSubmissions, setPendingSubmissions] = useState(0);
   const [averageScorePercent, setAverageScorePercent] = useState(0);
+  const [avgTestsPassedPercent, setAvgTestsPassedPercent] = useState<number | null>(null);
   const [totalAssignments, setTotalAssignments] = useState(0);
   const [assignmentStats, setAssignmentStats] = useState<AssignmentStats[]>([]);
   const [studentStats, setStudentStats] = useState<StudentStats[]>([]);
@@ -276,6 +279,41 @@ export default function AssignmentAnalyticsPage() {
         });
 
         setStudentStats(sortedStudents);
+
+        // Calculate Avg Tests Passed % for code assignments
+        // Get latest submission per student per assignment where tests_total > 0
+        const latestSubmissionsByStudentAssignment: Record<string, Submission> = {};
+        for (const sub of allSubmissions) {
+          const key = `${sub.student_email}-${sub.assignment_id}`;
+          if (
+            !latestSubmissionsByStudentAssignment[key] ||
+            new Date(sub.submitted_at) >
+              new Date(latestSubmissionsByStudentAssignment[key].submitted_at)
+          ) {
+            latestSubmissionsByStudentAssignment[key] = sub;
+          }
+        }
+
+        const codeSubmissions = Object.values(latestSubmissionsByStudentAssignment).filter(
+          (sub) =>
+            sub.tests_total !== null &&
+            sub.tests_total !== undefined &&
+            sub.tests_total > 0
+        );
+
+        if (codeSubmissions.length > 0) {
+          const totalTestsPassed = codeSubmissions.reduce(
+            (sum, sub) => sum + (sub.tests_passed ?? 0),
+            0
+          );
+          const totalTests = codeSubmissions.reduce(
+            (sum, sub) => sum + (sub.tests_total ?? 0),
+            0
+          );
+          const avgPercent = totalTests > 0 ? (totalTestsPassed / totalTests) * 100 : 0;
+          setAvgTestsPassedPercent(avgPercent);
+        }
+
         setLoading(false);
       } catch (err: any) {
         console.error("Analytics fetch error:", err);
@@ -354,7 +392,7 @@ export default function AssignmentAnalyticsPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className={`grid grid-cols-1 md:grid-cols-${avgTestsPassedPercent !== null ? '5' : '4'} gap-4 mb-8`}>
           <div className="card text-center">
             <p className="text-3xl font-bold text-college-secondary font-poppins">
               {overallSubmissionPercent.toFixed(1)}%
@@ -381,6 +419,17 @@ export default function AssignmentAnalyticsPage() {
               Average Score %
             </p>
           </div>
+
+          {avgTestsPassedPercent !== null && (
+            <div className="card text-center">
+              <p className="text-3xl font-bold text-purple-600 font-poppins">
+                {avgTestsPassedPercent.toFixed(1)}%
+              </p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">
+                Avg Tests Passed %
+              </p>
+            </div>
+          )}
 
           <div className="card text-center">
             <p className="text-3xl font-bold text-college-accent font-poppins">

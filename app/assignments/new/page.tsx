@@ -4,7 +4,13 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
+import { LANGUAGES } from "@/lib/languages";
 import Navbar from "@/components/Navbar";
+
+interface TestCase {
+  input: string;
+  expected_output: string;
+}
 
 export default function NewAssignmentPage() {
   const router = useRouter();
@@ -21,6 +27,14 @@ export default function NewAssignmentPage() {
   const [deadline, setDeadline] = useState("");
   const [maxMarks, setMaxMarks] = useState(100);
   const [file, setFile] = useState<File | null>(null);
+
+  // Code assignment fields
+  const [assignmentType, setAssignmentType] = useState<"document" | "code">("document");
+  const [languageId, setLanguageId] = useState<number>(103); // Default to C
+  const [testCases, setTestCases] = useState<TestCase[]>([
+    { input: "", expected_output: "" },
+    { input: "", expected_output: "" },
+  ]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -70,12 +84,43 @@ export default function NewAssignmentPage() {
     checkAuth();
   }, [router]);
 
+  const addTestCase = () => {
+    setTestCases([...testCases, { input: "", expected_output: "" }]);
+  };
+
+  const removeTestCase = (index: number) => {
+    if (testCases.length > 1) {
+      setTestCases(testCases.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateTestCase = (
+    index: number,
+    field: "input" | "expected_output",
+    value: string
+  ) => {
+    const updated = [...testCases];
+    updated[index][field] = value;
+    setTestCases(updated);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!title.trim() || !section.trim() || !deadline) {
       setError("Please fill in all required fields");
       return;
+    }
+
+    // Validate code assignments have at least one non-empty test case
+    if (assignmentType === "code") {
+      const nonEmptyTests = testCases.filter(
+        (tc) => tc.input.trim() || tc.expected_output.trim()
+      );
+      if (nonEmptyTests.length === 0) {
+        setError("Code assignments must have at least one test case");
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -110,6 +155,10 @@ export default function NewAssignmentPage() {
         attachmentName = file.name;
       }
 
+      // Get language name if code assignment
+      const selectedLanguage = LANGUAGES.find((lang) => lang.id === languageId);
+      const languageName = selectedLanguage ? selectedLanguage.name : null;
+
       // Insert assignment
       const { data: assignmentData, error: insertError } = await (
         supabase.from("assignments") as any
@@ -123,6 +172,9 @@ export default function NewAssignmentPage() {
           attachment_url: attachmentUrl,
           attachment_name: attachmentName,
           created_by_email: userEmail,
+          type: assignmentType,
+          language_id: assignmentType === "code" ? languageId : null,
+          language_name: assignmentType === "code" ? languageName : null,
         })
         .select()
         .single();
@@ -132,6 +184,31 @@ export default function NewAssignmentPage() {
       }
 
       const assignmentId = (assignmentData as any)?.id;
+
+      // Insert test cases for code assignments
+      if (assignmentType === "code") {
+        const nonEmptyTests = testCases.filter(
+          (tc) => tc.input.trim() || tc.expected_output.trim()
+        );
+
+        if (nonEmptyTests.length > 0) {
+          const testCaseRecords = nonEmptyTests.map((tc, index) => ({
+            assignment_id: assignmentId,
+            input: tc.input,
+            expected_output: tc.expected_output,
+            sort_order: index,
+          }));
+
+          const { error: testCaseError } = await (
+            supabase.from("test_cases") as any
+          ).insert(testCaseRecords);
+
+          if (testCaseError) {
+            console.error("Failed to insert test cases:", testCaseError);
+            // Don't fail the whole operation, just log the error
+          }
+        }
+      }
 
       // Fetch all students in the section
       const { data: studentsData } = await supabase
@@ -212,6 +289,47 @@ export default function NewAssignmentPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="card">
+          {/* Assignment Type */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+              Assignment Type <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={assignmentType}
+              onChange={(e) =>
+                setAssignmentType(e.target.value as "document" | "code")
+              }
+              className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+            >
+              <option value="document">Document Submission</option>
+              <option value="code">Programming Assignment</option>
+            </select>
+          </div>
+
+          {/* Language (only for code assignments) */}
+          {assignmentType === "code" && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                Language <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={languageId}
+                onChange={(e) => setLanguageId(parseInt(e.target.value))}
+                className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+              >
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.id} value={lang.id}>
+                    {lang.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 font-poppins mt-2">
+                Students read input from stdin and print output. Java class must
+                be named Main.
+              </p>
+            </div>
+          )}
+
           {/* Title */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
@@ -287,6 +405,79 @@ export default function NewAssignmentPage() {
               className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
             />
           </div>
+
+          {/* Test Cases (only for code assignments) */}
+          {assignmentType === "code" && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                Test Cases <span className="text-red-500">*</span>
+              </label>
+              <div className="space-y-4">
+                {testCases.map((testCase, index) => (
+                  <div
+                    key={index}
+                    className="p-4 border-2 border-college-peach rounded-lg"
+                  >
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-sm font-semibold text-college-accent font-poppins">
+                        Test Case {index + 1}
+                      </span>
+                      {testCases.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeTestCase(index)}
+                          className="text-red-500 text-sm font-poppins hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 font-poppins mb-1">
+                          Input (stdin)
+                        </label>
+                        <textarea
+                          value={testCase.input}
+                          onChange={(e) =>
+                            updateTestCase(index, "input", e.target.value)
+                          }
+                          placeholder="Input data"
+                          className="w-full px-3 py-2 border border-gray-300 rounded font-mono text-xs focus:outline-none focus:border-college-secondary resize-none"
+                          rows={4}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 font-poppins mb-1">
+                          Expected Output
+                        </label>
+                        <textarea
+                          value={testCase.expected_output}
+                          onChange={(e) =>
+                            updateTestCase(
+                              index,
+                              "expected_output",
+                              e.target.value
+                            )
+                          }
+                          placeholder="Expected output"
+                          className="w-full px-3 py-2 border border-gray-300 rounded font-mono text-xs focus:outline-none focus:border-college-secondary resize-none"
+                          rows={4}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={addTestCase}
+                className="mt-3 text-college-secondary text-sm font-poppins hover:underline"
+              >
+                + Add Test Case
+              </button>
+            </div>
+          )}
 
           {/* Instruction File */}
           <div className="mb-6">

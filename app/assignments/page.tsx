@@ -15,6 +15,8 @@ interface Assignment {
   max_marks: number;
   created_by_email: string;
   created_at: string;
+  type?: string;
+  language_name?: string | null;
 }
 
 interface AssignmentWithSubmission extends Assignment {
@@ -24,6 +26,8 @@ interface AssignmentWithSubmission extends Assignment {
     status: string;
     marks: number | null;
     submitted_at: string;
+    tests_passed?: number | null;
+    tests_total?: number | null;
   } | null;
 }
 
@@ -107,7 +111,7 @@ export default function AssignmentsPage() {
           for (const assignment of assignmentsList) {
             const { data: submissionData } = await supabase
               .from("submissions")
-              .select("id, status, marks, submitted_at")
+              .select("id, status, marks, submitted_at, tests_passed, tests_total")
               .eq("assignment_id", assignment.id)
               .eq("student_email", email)
               .order("submitted_at", { ascending: false })
@@ -246,9 +250,16 @@ export default function AssignmentsPage() {
                   className="card hover:shadow-lg transition-shadow cursor-pointer"
                 >
                   <div className="flex flex-col h-full">
-                    <h3 className="text-lg font-semibold text-college-accent font-poppins mb-2">
-                      {assignment.title}
-                    </h3>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h3 className="text-lg font-semibold text-college-accent font-poppins">
+                        {assignment.title}
+                      </h3>
+                      {assignment.type === "code" && (
+                        <span className="text-xs font-semibold px-2 py-1 rounded bg-purple-100 text-purple-700 whitespace-nowrap">
+                          Code
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-600 font-poppins mb-3 line-clamp-2">
                       {assignment.description}
                     </p>
@@ -282,13 +293,36 @@ export default function AssignmentsPage() {
                           </span>
                         </div>
                       ) : (
-                        status && (
-                          <span
-                            className={`text-xs font-semibold px-3 py-1 rounded-full ${status.class}`}
-                          >
-                            {status.text}
-                          </span>
-                        )
+                        <div className="space-y-2">
+                          {status && (
+                            <span
+                              className={`text-xs font-semibold px-3 py-1 rounded-full ${status.class}`}
+                            >
+                              {status.text}
+                            </span>
+                          )}
+                          {assignment.type === "code" &&
+                            assignment.latestSubmission &&
+                            assignment.latestSubmission.tests_passed !== null &&
+                            assignment.latestSubmission.tests_passed !== undefined &&
+                            assignment.latestSubmission.tests_total !== null &&
+                            assignment.latestSubmission.tests_total !== undefined && (
+                              <div className="text-xs font-poppins">
+                                <span className="text-gray-500">Tests: </span>
+                                <span
+                                  className={
+                                    assignment.latestSubmission.tests_passed ===
+                                    assignment.latestSubmission.tests_total
+                                      ? "text-green-600 font-semibold"
+                                      : "text-orange-600 font-semibold"
+                                  }
+                                >
+                                  {assignment.latestSubmission.tests_passed}/
+                                  {assignment.latestSubmission.tests_total}
+                                </span>
+                              </div>
+                            )}
+                        </div>
                       )}
                     </div>
                   </div>
