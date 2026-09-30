@@ -117,7 +117,9 @@ export default function CreateNoticePage() {
       formData.append("scope", scope);
       formData.append("category", category);
       formData.append("notice_content", noticeContent.trim());
-      formData.append("publication_date", publicationDate || "");
+      if (publicationDate && publicationDate.trim() !== '') {
+        formData.append("publication_date", publicationDate);
+      }
       formData.append("recipient_roles", JSON.stringify(selectedRoles));
       formData.append("recipient_departments", JSON.stringify(selectedDepartments));
 

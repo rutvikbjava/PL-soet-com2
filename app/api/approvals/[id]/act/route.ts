@@ -142,9 +142,9 @@ export async function POST(
           .single()
 
         const isNotice = doc?.type === 'notice' || doc?.type === 'circular'
-        const noSchedule = !doc?.publication_date
+        const hasNoSchedule = true
 
-        if (isNotice && noSchedule && !doc?.is_published) {
+        if (isNotice && hasNoSchedule && !doc?.is_published) {
           await fetch(
             process.env.NEXT_PUBLIC_APP_URL + '/api/notices/publish',
             {
