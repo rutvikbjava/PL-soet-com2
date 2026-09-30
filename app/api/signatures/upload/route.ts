@@ -36,15 +36,14 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createServerClient()
+    const adminClient = createAdminClient()
 
     // Fetch the approval and verify authorization
-    const { data: approvalData, error: approvalError } = await supabase
-      .from('approvals')
-      .select('id, approver_id, workflow_id, status')
+    const { data: approval, error: approvalError } = await (adminClient
+      .from('approvals') as any)
+      .select('id, status, workflow_id, step_order')
       .eq('id', approvalId)
       .single()
-
-    const approval = approvalData as any
 
     if (approvalError || !approval) {
       return NextResponse.json(
@@ -54,10 +53,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify the user role matches the required approver role
-    const adminClient = createAdminClient()
-    
-    const { data: workflow } = await adminClient
-      .from('workflows')
+    const { data: workflow } = await (adminClient
+      .from('workflows') as any)
       .select('document_id, generated_steps')
       .eq('id', approval.workflow_id)
       .single()
