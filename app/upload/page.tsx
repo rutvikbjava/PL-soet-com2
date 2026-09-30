@@ -211,7 +211,6 @@ export default function UploadPage() {
                 className="input-field"
               >
                 <option value="">Select document type</option>
-                <option value="notice">Notice</option>
                 <option value="timetable">Timetable</option>
                 <option value="exam_schedule">Examination Schedule</option>
                 <option value="policy">Policy Document</option>

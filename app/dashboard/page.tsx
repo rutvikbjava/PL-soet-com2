@@ -291,9 +291,14 @@ export default function DashboardPage() {
               Manage and track your submitted workflows
             </p>
           </div>
-          <Link href="/upload" className="btn-primary mt-4 md:mt-0">
-            Upload New Document
-          </Link>
+          <div className="flex gap-3 mt-4 md:mt-0">
+            <Link href="/upload" className="btn-primary">
+              Upload New Document
+            </Link>
+            <Link href="/notices/create" className="btn-secondary">
+              📢 Create Notice
+            </Link>
+          </div>
         </div>
 
         {/* Stats Row */}

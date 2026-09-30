@@ -93,6 +93,12 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
               Upload Document
             </Link>
             <Link
+              href="/notices/create"
+              className="bg-college-secondary text-white px-3 py-1 rounded-full text-sm font-poppins font-medium hover:bg-college-secondary-dark transition-colors"
+            >
+              Create Notice
+            </Link>
+            <Link
               href="/audit"
               className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
             >
