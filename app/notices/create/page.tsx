@@ -134,14 +134,27 @@ export default function CreateNoticePage() {
         body: formData,
       });
 
-      const result = await response.json();
-
       if (!response.ok) {
-        throw new Error(result.error || "Failed to create notice");
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to create notice');
+        return;
       }
 
-      // Redirect to document page
-      router.push(`/documents/${result.documentId}`);
+      const data = await response.json();
+      console.log('Notice create response:', JSON.stringify(data));
+
+      const documentId = 
+        data?.document?.id ?? 
+        data?.id ?? 
+        null;
+
+      if (!documentId) {
+        setError('Notice created but document ID missing from response');
+        setSubmitting(false);
+        return;
+      }
+
+      router.push('/documents/' + documentId);
     } catch (err: any) {
       console.error("Create notice error:", err);
       setError(err.message || "Failed to create notice");
