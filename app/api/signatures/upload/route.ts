@@ -78,6 +78,13 @@ export async function POST(request: NextRequest) {
     
     const userRole = (userData as any)?.role ?? null
     
+    console.log('approval.step_order:', approval.step_order)
+    console.log('generatedSteps:', JSON.stringify(generatedSteps))
+    console.log('matchingStep:', JSON.stringify(matchingStep))
+    console.log('requiredRole:', requiredRole)
+    console.log('userRole:', userRole)
+    console.log('user.id:', user.id)
+    
     if (!requiredRole || !userRole || 
         requiredRole.toLowerCase() !== userRole.toLowerCase()) {
       return NextResponse.json(
