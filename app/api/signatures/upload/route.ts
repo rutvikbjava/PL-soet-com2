@@ -53,10 +53,35 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify the user is the assigned approver
-    if (approval.approver_id !== user.id) {
+    // Verify the user role matches the required approver role
+    const adminClient = createAdminClient()
+    
+    const { data: workflow } = await adminClient
+      .from('workflows')
+      .select('document_id, generated_steps')
+      .eq('id', approval.workflow_id)
+      .single()
+
+    const generatedSteps = (workflow?.generated_steps ?? []) as any[]
+    
+    const matchingStep = generatedSteps.find(
+      (s: any) => (s.stepOrder ?? s.step_order) === approval.step_order
+    )
+    
+    const requiredRole = matchingStep?.requiredRole ?? matchingStep?.required_role ?? null
+    
+    const { data: userData } = await adminClient
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    
+    const userRole = (userData as any)?.role ?? null
+    
+    if (!requiredRole || !userRole || 
+        requiredRole.toLowerCase() !== userRole.toLowerCase()) {
       return NextResponse.json(
-        { error: 'Forbidden: You are not authorized to sign this approval' },
+        { error: 'Forbidden: Your role does not match the required approver role' },
         { status: 403 }
       )
     }
