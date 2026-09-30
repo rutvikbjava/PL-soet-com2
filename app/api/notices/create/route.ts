@@ -147,20 +147,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert approval rows for each step
-    const approvalInserts = workflowSteps.map((step: any) => ({
+    const approvalRows = workflowSteps.map((step: any) => ({
       workflow_id: workflow.id,
-      step_order: step.stepOrder,
+      step_order: step.stepOrder ?? step.step_order ?? 1,
       status: 'pending',
-      approver_id: null,
     }));
 
-    const { data: approvals, error: approvalsError } = await (supabase.from('approvals') as any)
-      .insert(approvalInserts)
-      .select();
+    const { error: approvalsError } = await (supabase
+      .from('approvals') as any)
+      .insert(approvalRows);
 
     if (approvalsError) {
-      console.error('Approvals insert error:', approvalsError);
-      return NextResponse.json({ error: 'Failed to create approvals' }, { status: 500 });
+      console.error('Approvals error:', JSON.stringify(approvalsError));
+      return NextResponse.json(
+        { error: 'Failed to create approvals' },
+        { status: 500 }
+      );
     }
 
     // Parse recipient_roles and recipient_departments from JSON strings safely
@@ -235,7 +237,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       document: { ...document, status: 'pending' },
       workflow,
-      approvals,
     });
   } catch (error) {
     console.error('Notice creation error:', error);
