@@ -133,6 +133,27 @@ export async function POST(
             action: 'document_approved',
             metadata: { approval_id: approvalId }
           })
+
+        // Auto-publish notices/circulars with no publication_date
+        const { data: doc } = await (supabase as any)
+          .from('documents')
+          .select('type, is_published, publication_date')
+          .eq('id', documentId)
+          .single()
+
+        const isNotice = doc?.type === 'notice' || doc?.type === 'circular'
+        const noSchedule = !doc?.publication_date
+
+        if (isNotice && noSchedule && !doc?.is_published) {
+          await fetch(
+            process.env.NEXT_PUBLIC_APP_URL + '/api/notices/publish',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ document_id: documentId })
+            }
+          )
+        }
       } else {
         await (supabase.from('audit_logs') as any)
           .insert({

@@ -46,6 +46,7 @@ export default function DashboardPage() {
   const [actionHistory, setActionHistory] = useState<ActionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [recentNotices, setRecentNotices] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -189,6 +190,15 @@ export default function DashboardPage() {
         }
         setActionHistory(history);
 
+        // Fetch Recent Notices
+        const { data: notices } = await (supabase as any)
+          .from('published_notices')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        setRecentNotices(notices || []);
+
         setLoading(false);
       } catch (err) {
         console.error("Dashboard error:", err);
@@ -321,6 +331,52 @@ export default function DashboardPage() {
             </p>
             <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
           </div>
+        </div>
+
+        {/* Recent Notices Section */}
+        <div className="mb-8">
+          <h2 className="section-heading">📢 Recent Notices</h2>
+          {recentNotices.length === 0 ? (
+            <div className="bg-college-peach rounded-lg px-4 py-3">
+              <p className="text-sm text-gray-500 font-poppins">
+                No published notices yet
+              </p>
+              <Link
+                href="/notice-board"
+                className="text-college-secondary text-xs font-poppins hover:underline"
+              >
+                View Notice Board →
+              </Link>
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-3 flex-wrap mb-3">
+                {recentNotices.map((notice) => (
+                  <div
+                    key={notice.id}
+                    onClick={() => router.push('/notice-board')}
+                    className="bg-white border border-college-peach rounded-xl p-4 flex-1 min-w-48 max-w-xs cursor-pointer hover:shadow-md transition-shadow"
+                  >
+                    <span className="text-xs bg-college-peach text-college-accent px-2 py-0.5 rounded-full font-poppins">
+                      {notice.category || 'General'}
+                    </span>
+                    <h3 className="text-sm font-semibold text-college-accent mt-2 font-poppins truncate max-w-full">
+                      {notice.title}
+                    </h3>
+                    <p className="text-xs text-gray-400 font-poppins mt-1">
+                      {formatDate(notice.published_at || notice.created_at)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <Link
+                href="/notice-board"
+                className="text-college-secondary text-sm font-poppins hover:underline"
+              >
+                View All Notices →
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Pending Your Approval Section (only for hod, coe, principal) */}

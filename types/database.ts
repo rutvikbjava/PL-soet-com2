@@ -374,6 +374,38 @@ export interface Document {
   file_url: string | null
   status: 'draft' | 'pending' | 'approved' | 'rejected'
   created_at: string
+  category: string | null
+  publication_date: string | null
+  published_at: string | null
+  is_published: boolean
+  notice_content: string | null
+}
+
+// NoticeRecipient type
+export interface NoticeRecipient {
+  id: string
+  document_id: string
+  recipient_type: 'role' | 'department'
+  recipient_value: string
+  created_at: string
+}
+
+// PublishedNotice type
+export interface PublishedNotice {
+  id: string
+  title: string
+  type: string
+  category: string | null
+  department: string
+  scope: string
+  file_url: string | null
+  notice_content: string | null
+  publication_date: string | null
+  published_at: string | null
+  creator_id: string
+  created_at: string
+  creator_name: string
+  creator_role: string
 }
 
 // Approval type

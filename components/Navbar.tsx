@@ -104,6 +104,12 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             >
               Analytics
             </Link>
+            <Link
+              href="/notice-board"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+            >
+              Notice Board
+            </Link>
           </>
         )}
         {userRole === "faculty" && (
