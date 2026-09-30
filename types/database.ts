@@ -351,7 +351,7 @@ export type TablesUpdate<
 
 // Enum types for type safety
 export type UserRole = 'faculty' | 'hod' | 'coe' | 'principal' | 'admin'
-export type DocumentType = 'notice' | 'timetable' | 'exam_schedule' | 'policy'
+export type DocumentType = 'notice' | 'timetable' | 'exam_schedule' | 'policy' | 'circular'
 export type DocumentScope = 'department' | 'college' | 'institution'
 export type DocumentStatus = 'draft' | 'pending' | 'approved' | 'rejected'
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
@@ -367,7 +367,7 @@ export interface WorkflowStep {
 export interface Document {
   id: string
   title: string
-  type: 'notice' | 'timetable' | 'exam_schedule' | 'policy'
+  type: 'notice' | 'timetable' | 'exam_schedule' | 'policy' | 'circular'
   creator_id: string
   department: string
   scope: 'department' | 'college' | 'institution'

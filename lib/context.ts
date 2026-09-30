@@ -29,26 +29,38 @@ export function analyzeDocumentContext(
   const department = doc.department
   const scope = doc.scope as DocumentScope
 
-  const suggestedApprovers: UserRole[] = []
+  let suggestedApprovers: UserRole[] = []
 
-  // Department notice by faculty → HOD
-  if (docType === 'notice' && creatorRole === 'faculty' && scope === 'department') {
-    suggestedApprovers.push('hod')
+  // Notice or Circular
+  if (docType === 'notice' || docType === 'circular') {
+    if (scope === 'department') {
+      suggestedApprovers = ['hod']
+    } else if (scope === 'college') {
+      suggestedApprovers = ['hod', 'principal']
+    } else if (scope === 'institution') {
+      suggestedApprovers = ['hod', 'principal']
+    }
+  }
+  // Timetable
+  else if (docType === 'timetable') {
+    suggestedApprovers = ['hod']
+  }
+  // Exam Schedule
+  else if (docType === 'exam_schedule') {
+    suggestedApprovers = ['hod', 'coe', 'principal']
+  }
+  // Policy
+  else if (docType === 'policy') {
+    suggestedApprovers = ['hod', 'principal']
+  }
+  // Fallback - ensure suggestedApprovers is never empty
+  else {
+    suggestedApprovers = ['hod']
   }
 
-  // Timetable change by faculty → HOD
-  if (docType === 'timetable' && creatorRole === 'faculty') {
-    suggestedApprovers.push('hod')
-  }
-
-  // Exam schedule by faculty/COE → HOD, COE, Principal
-  if (docType === 'exam_schedule' && (creatorRole === 'faculty' || creatorRole === 'coe')) {
-    suggestedApprovers.push('hod', 'coe', 'principal')
-  }
-
-  // Institutional notice by HOD → Principal
-  if (docType === 'notice' && creatorRole === 'hod' && scope === 'institution') {
-    suggestedApprovers.push('principal')
+  // Ensure suggestedApprovers is never empty (safety check)
+  if (suggestedApprovers.length === 0) {
+    suggestedApprovers = ['hod']
   }
 
   return {
