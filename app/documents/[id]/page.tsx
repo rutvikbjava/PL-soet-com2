@@ -513,6 +513,7 @@ export default function DocumentDetailPage({
                           const data = await res.json();
                           if (!res.ok) throw new Error(data.error || 'Embedding failed');
                           setEmbeddedSignaturePath(data.signed_pdf_path ?? data.signature_url);
+                          await fetchDocumentData();
                           setIsEmbedding(false);
                         } catch (err: any) {
                           setError(err.message);
@@ -534,6 +535,14 @@ export default function DocumentDetailPage({
                     <p className="text-green-700 text-sm font-poppins">
                       ✓ Signature embedded into PDF successfully
                     </p>
+                    <a
+                      href={viewableFileUrl ?? '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary text-xs mt-2 inline-block"
+                    >
+                      View Signed Document
+                    </a>
                   </div>
                 )}
               </div>
