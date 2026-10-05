@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import SignaturePad from "@/components/SignaturePad";
+import PDFSignaturePlacer from "@/components/PDFSignaturePlacer";
 
 interface Document {
   id: string;
@@ -15,6 +16,7 @@ interface Document {
   status: string;
   created_at: string;
   creator_id: string;
+  file_url?: string;
 }
 
 interface Approval {
@@ -48,17 +50,22 @@ export default function DocumentDetailPage({
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [savedSignatureDataUrl, setSavedSignatureDataUrl] = useState<string | null>(null);
+  
+  // New state variables for signature embedding
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [showPlacer, setShowPlacer] = useState(false);
+  const [isEmbedding, setIsEmbedding] = useState(false);
+  const [embeddedSignaturePath, setEmbeddedSignaturePath] = useState<string | null>(null);
+  
   const [rejectionComment, setRejectionComment] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   const fetchDocumentData = async () => {
     try {
       setLoading(true);
-      setError("");
+      setError(null);
 
       const supabase = createBrowserClient();
       const {
@@ -150,51 +157,64 @@ export default function DocumentDetailPage({
   };
 
   const handleApprove = async () => {
-    if (!savedSignatureDataUrl || !pendingApproval) return
+    if (!signatureDataUrl || !pendingApproval) return;
 
-    setIsSubmitting(true)
-    setError(null)
+    setIsSubmitting(true);
+    setError(null);
 
     try {
-      const fetchRes = await fetch(savedSignatureDataUrl)
-      const blob = await fetchRes.blob()
-      
-      const formData = new FormData()
-      formData.append('signature', blob, 'signature.png')
-      formData.append('approval_id', pendingApproval.id)
-      
-      const sigRes = await fetch('/api/signatures/upload', {
-        method: 'POST',
-        body: formData
-      })
-      const sigData = await sigRes.json()
-      if (!sigRes.ok) throw new Error(sigData.error || 'Failed to upload signature')
+      let signaturePath: string;
+
+      if (!embeddedSignaturePath && !isPDF) {
+        // Non-PDF: Upload signature separately
+        const base64 = signatureDataUrl.split(',')[1];
+        const fetchRes = await fetch(`data:image/png;base64,${base64}`);
+        const blob = await fetchRes.blob();
+        
+        const formData = new FormData();
+        formData.append('signature', blob, 'signature.png');
+        formData.append('approval_id', pendingApproval.id);
+        
+        const sigRes = await fetch('/api/signatures/upload', {
+          method: 'POST',
+          body: formData
+        });
+        const sigData = await sigRes.json();
+        if (!sigRes.ok) throw new Error(sigData.error || 'Upload failed');
+        
+        signaturePath = sigData.signature_url;
+      } else {
+        // PDF: Use embedded signature path
+        signaturePath = embeddedSignaturePath!;
+      }
       
       const actRes = await fetch('/api/approvals/' + pendingApproval.id + '/act', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           action: 'approve', 
-          signature_url: sigData.signature_url 
+          signature_url: signaturePath 
         })
-      })
-      const actData = await actRes.json()
-      if (!actRes.ok) throw new Error(actData.error || 'Failed to approve')
+      });
+      const actData = await actRes.json();
+      if (!actRes.ok) throw new Error(actData.error || 'Approval failed');
       
-      setSavedSignatureDataUrl(null)
-      await fetchDocumentData()
+      setSignatureDataUrl(null);
+      setEmbeddedSignaturePath(null);
+      setShowPlacer(false);
+      await fetchDocumentData();
     } catch (err: any) {
-      setError(err.message || 'Something went wrong')
+      setError(err.message);
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   const handleReject = async () => {
-    if (!pendingApproval) return
+    if (!pendingApproval) return;
 
-    setIsSubmitting(true)
-    setError(null)
+    setIsSubmitting(true);
+    setError(null);
 
     try {
       const actRes = await fetch('/api/approvals/' + pendingApproval.id + '/act', {
@@ -204,17 +224,17 @@ export default function DocumentDetailPage({
           action: 'reject',
           comment: rejectionComment 
         })
-      })
-      const actData = await actRes.json()
-      if (!actRes.ok) throw new Error(actData.error || 'Failed to reject')
+      });
+      const actData = await actRes.json();
+      if (!actRes.ok) throw new Error(actData.error || 'Failed to reject');
 
-      await fetchDocumentData()
+      await fetchDocumentData();
     } catch (err: any) {
-      setError(err.message || 'Something went wrong')
+      setError(err.message || 'Something went wrong');
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -226,7 +246,7 @@ export default function DocumentDetailPage({
     );
   }
 
-  if (error) {
+  if (error && !document) {
     return (
       <div className="min-h-screen bg-college-bg flex items-center justify-center px-6">
         <div className="card text-center max-w-md">
@@ -252,14 +272,17 @@ export default function DocumentDetailPage({
     );
   }
 
+  // Compute isPDF
+  const isPDF = (document?.file_url ?? '').toLowerCase().includes('.pdf');
+
   const generatedSteps = workflow?.generated_steps ?? [];
   const pendingApproval = approvals?.find((a) => a.status === "pending");
   const rejectedApproval = approvals?.find((a) => a.status === "rejected");
   const pendingStep = pendingApproval
     ? generatedSteps.find(
         (s: any) => {
-          const stepNum = s.stepOrder ?? s.step_order ?? s.StepOrder
-          return stepNum === pendingApproval.step_order
+          const stepNum = s.stepOrder ?? s.step_order ?? s.StepOrder;
+          return stepNum === pendingApproval.step_order;
         }
       )
     : null;
@@ -271,12 +294,6 @@ export default function DocumentDetailPage({
     !!pendingApproval &&
     !!currentUserRole &&
     stepRole.toLowerCase() === currentUserRole.toLowerCase();
-
-  console.log('pendingApproval:', pendingApproval);
-  console.log('pendingStep:', pendingStep);
-  console.log('stepRole:', stepRole);
-  console.log('currentUserRole:', currentUserRole);
-  console.log('isMyTurnToApprove:', isMyTurnToApprove);
 
   return (
     <div className="min-h-screen bg-college-bg">
@@ -434,7 +451,7 @@ export default function DocumentDetailPage({
           </div>
         </div>
 
-        {/* Section 3: Action Panel (only when isMyTurnToApprove) */}
+        {/* Section 3: Action Panel (New Signature Embedding Flow) */}
         {isMyTurnToApprove && (
           <div
             className="card mb-6"
@@ -442,24 +459,97 @@ export default function DocumentDetailPage({
           >
             <h2 className="section-heading">Your Approval Required</h2>
 
-            <p className="text-sm text-gray-500 font-poppins mb-2">
-              This document requires your approval as{" "}
-              <strong>{currentUserRole}</strong>
-            </p>
-
-            <p className="text-sm text-gray-400 font-poppins mb-4">
+            <p className="text-sm text-gray-500 font-poppins mb-4">
               Please review the document above before signing
             </p>
 
-            {/* Signature Pad */}
+            {/* STEP 1 — Signature Collection */}
             <SignaturePad
-              onSave={(dataUrl) => setSavedSignatureDataUrl(dataUrl)}
+              onSave={(dataUrl) => {
+                setSignatureDataUrl(dataUrl);
+                setShowPlacer(false);
+                setEmbeddedSignaturePath(null);
+              }}
+              disabled={isEmbedding || isSubmitting}
             />
+
+            {/* STEP 2 — PDF Placement */}
+            {isPDF && signatureDataUrl && (
+              <div className="mt-4">
+                <div className="bg-college-peach rounded-lg p-3 text-sm text-college-accent font-poppins mb-3">
+                  PDF detected. Please place your signature on the document.
+                </div>
+
+                {!showPlacer && !embeddedSignaturePath && (
+                  <button
+                    onClick={() => setShowPlacer(true)}
+                    disabled={isEmbedding || isSubmitting}
+                    className="btn-secondary"
+                  >
+                    Place Signature on PDF
+                  </button>
+                )}
+
+                {showPlacer && viewableFileUrl && (
+                  <div className="mt-4">
+                    <PDFSignaturePlacer
+                      pdfUrl={viewableFileUrl}
+                      signatureDataUrl={signatureDataUrl}
+                      disabled={isEmbedding}
+                      onCancel={() => setShowPlacer(false)}
+                      onConfirm={async (placement) => {
+                        setIsEmbedding(true);
+                        setShowPlacer(false);
+                        try {
+                          const res = await fetch('/api/signatures/embed', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              approval_id: pendingApproval.id,
+                              signature_data_url: signatureDataUrl,
+                              placement
+                            })
+                          });
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error || 'Embedding failed');
+                          setEmbeddedSignaturePath(data.signed_pdf_path ?? data.signature_url);
+                          setIsEmbedding(false);
+                        } catch (err: any) {
+                          setError(err.message);
+                          setIsEmbedding(false);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+
+                {isEmbedding && (
+                  <p className="text-college-secondary text-sm font-poppins mt-2">
+                    Embedding signature...
+                  </p>
+                )}
+
+                {embeddedSignaturePath && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-3">
+                    <p className="text-green-700 text-sm font-poppins">
+                      ✓ Signature embedded into PDF successfully
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* STEP 3 — Non-PDF Signature Info */}
+            {!isPDF && signatureDataUrl && (
+              <div className="bg-college-peach rounded-lg p-3 text-sm text-college-accent font-poppins mt-4">
+                Your signature will be recorded alongside this document.
+              </div>
+            )}
 
             {/* Rejection Comment Textarea */}
             <div className="mt-6">
               <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
-                Reason for rejection (required)
+                Reason for rejection (required if rejecting)
               </label>
               <textarea
                 value={rejectionComment}
@@ -467,34 +557,35 @@ export default function DocumentDetailPage({
                 placeholder="Please provide a reason for rejecting this document..."
                 className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
                 rows={4}
+                disabled={isSubmitting || isEmbedding}
               />
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-4 mt-4">
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={!savedSignatureDataUrl || isSubmitting}
-                className="btn-primary"
-              >
-                {isSubmitting ? "Approving..." : "Approve with Signature"}
-              </button>
+            {/* STEP 4 — Approve and Reject Buttons */}
+            {signatureDataUrl && (isPDF ? embeddedSignaturePath !== null : true) && (
+              <div className="flex gap-4 mt-4">
+                <button
+                  onClick={handleApprove}
+                  disabled={isSubmitting || isEmbedding}
+                  className="btn-primary"
+                >
+                  {isSubmitting ? 'Approving...' : 'Approve Document'}
+                </button>
 
-              <button
-                type="button"
-                onClick={handleReject}
-                disabled={!rejectionComment.trim() || isSubmitting}
-                className="btn-danger"
-              >
-                Reject Document
-              </button>
-            </div>
+                <button
+                  onClick={handleReject}
+                  disabled={!rejectionComment.trim() || isSubmitting}
+                  className="btn-danger"
+                >
+                  Reject
+                </button>
+              </div>
+            )}
 
             {/* Inline Error */}
-            {actionError && (
+            {error && (
               <p className="text-red-500 text-sm mt-2 font-poppins">
-                {actionError}
+                {error}
               </p>
             )}
           </div>
