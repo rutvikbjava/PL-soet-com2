@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
+import { PROJECT_CATEGORIES } from "@/lib/project-categories";
 
 interface Assignment {
   id: string;
@@ -17,6 +18,7 @@ interface Assignment {
   created_at: string;
   type?: string;
   language_name?: string | null;
+  project_category?: string | null;
 }
 
 interface AssignmentWithSubmission extends Assignment {
@@ -254,11 +256,18 @@ export default function AssignmentsPage() {
                       <h3 className="text-lg font-semibold text-college-accent font-poppins">
                         {assignment.title}
                       </h3>
-                      {assignment.type === "code" && (
-                        <span className="text-xs font-semibold px-2 py-1 rounded bg-purple-100 text-purple-700 whitespace-nowrap">
-                          Code
-                        </span>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {assignment.type === "code" && (
+                          <span className="text-xs font-semibold px-2 py-1 rounded bg-purple-100 text-purple-700 whitespace-nowrap">
+                            Code
+                          </span>
+                        )}
+                        {assignment.type === "project" && userRole === "faculty" && assignment.project_category && (
+                          <span className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-700 whitespace-nowrap">
+                            {PROJECT_CATEGORIES.find(cat => cat.id === assignment.project_category)?.label || assignment.project_category}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <p className="text-sm text-gray-600 font-poppins mb-3 line-clamp-2">
                       {assignment.description}

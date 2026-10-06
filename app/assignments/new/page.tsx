@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import { LANGUAGES } from "@/lib/languages";
 import { detectLinkType, isValidUrl } from "@/lib/link-detector";
+import { PROJECT_CATEGORIES } from "@/lib/project-categories";
 import Navbar from "@/components/Navbar";
 
 interface TestCase {
@@ -30,7 +31,7 @@ export default function NewAssignmentPage() {
   const [file, setFile] = useState<File | null>(null);
 
   // Code assignment fields
-  const [assignmentType, setAssignmentType] = useState<"document" | "code" | "link">("document");
+  const [assignmentType, setAssignmentType] = useState<"document" | "code" | "link" | "project">("document");
   const [languageId, setLanguageId] = useState<number>(103); // Default to C
   const [smartGrading, setSmartGrading] = useState(true);
   const [testCases, setTestCases] = useState<TestCase[]>([
@@ -40,6 +41,9 @@ export default function NewAssignmentPage() {
   
   // Link assignment fields
   const [submissionLink, setSubmissionLink] = useState("");
+  
+  // Project assignment fields
+  const [projectCategory, setProjectCategory] = useState("mini");
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -189,6 +193,7 @@ export default function NewAssignmentPage() {
           smart_grading: assignmentType === "code" ? smartGrading : null,
           submission_link: assignmentType === "link" ? submissionLink : null,
           submission_link_type: assignmentType === "link" ? submissionLinkType : null,
+          project_category: assignmentType === "project" ? projectCategory : null,
         })
         .select()
         .single();
@@ -311,13 +316,14 @@ export default function NewAssignmentPage() {
             <select
               value={assignmentType}
               onChange={(e) =>
-                setAssignmentType(e.target.value as "document" | "code" | "link")
+                setAssignmentType(e.target.value as "document" | "code" | "link" | "project")
               }
               className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
             >
               <option value="document">Document Submission</option>
               <option value="code">Programming Assignment</option>
               <option value="link">External Link (Google Form / Drive)</option>
+              <option value="project">Project Submission</option>
             </select>
           </div>
 
@@ -392,6 +398,32 @@ export default function NewAssignmentPage() {
               {submissionLink && !isValidUrl(submissionLink) && (
                 <p className="text-red-500 text-xs mt-1">Please enter a valid URL</p>
               )}
+            </div>
+          )}
+
+          {/* Project Details (only for project assignments) */}
+          {assignmentType === "project" && (
+            <div className="mb-6">
+              <h3 className="section-heading mb-4">Project Details</h3>
+              
+              <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                Project Category <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={projectCategory}
+                onChange={(e) => setProjectCategory(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                required={assignmentType === "project"}
+              >
+                {PROJECT_CATEGORIES.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 font-poppins mt-2">
+                Select the type of project for this assignment
+              </p>
             </div>
           )}
 

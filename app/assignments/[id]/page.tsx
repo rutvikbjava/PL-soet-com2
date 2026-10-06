@@ -7,6 +7,7 @@ import { createBrowserClient } from "@/lib/supabase";
 import { LANGUAGES } from "@/lib/languages";
 import Navbar from "@/components/Navbar";
 import { detectLinkType, isValidUrl } from "@/lib/link-detector";
+import { PROJECT_CATEGORIES } from "@/lib/project-categories";
 
 interface Assignment {
   id: string;
@@ -23,6 +24,7 @@ interface Assignment {
   language_name?: string | null;
   submission_link?: string | null;
   submission_link_type?: string | null;
+  project_category?: string | null;
 }
 
 interface TestCase {
@@ -67,6 +69,15 @@ interface Submission {
   max_memory?: number | null;
   link_opened_at?: string | null;
   submitted_via?: string | null;
+  team_members?: string | null;
+  abstract?: string | null;
+  github_link?: string | null;
+  report_url?: string | null;
+  report_name?: string | null;
+  code_zip_url?: string | null;
+  code_zip_name?: string | null;
+  ppt_url?: string | null;
+  ppt_name?: string | null;
 }
 
 interface StudentWithSubmission {
@@ -104,6 +115,21 @@ export default function AssignmentDetailPage() {
   const [hasOpened, setHasOpened] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [linkSubmitting, setLinkSubmitting] = useState(false);
+  
+  // Faculty re-run and custom test states
+  const [rerunning, setRerunning] = useState<string | null>(null);
+  const [customTestExpanded, setCustomTestExpanded] = useState<string | null>(null);
+  const [customInput, setCustomInput] = useState<string>("");
+  const [customRunning, setCustomRunning] = useState(false);
+  const [customResult, setCustomResult] = useState<any>(null);
+  
+  // Project submission states
+  const [teamMembers, setTeamMembers] = useState<string>("");
+  const [abstract, setAbstract] = useState<string>("");
+  const [githubLink, setGithubLink] = useState<string>("");
+  const [reportFile, setReportFile] = useState<File | null>(null);
+  const [codeZipFile, setCodeZipFile] = useState<File | null>(null);
+  const [pptFile, setPptFile] = useState<File | null>(null);
 
   const fetchData = async () => {
     try {
@@ -377,6 +403,138 @@ export default function AssignmentDetailPage() {
     }
   };
 
+  const handleProjectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!reportFile || !codeZipFile) {
+      setSubmitError("Please provide both Project Report and Code ZIP");
+      return;
+    }
+
+    if (!teamMembers.trim() || !abstract.trim()) {
+      setSubmitError("Please fill in Team Members and Abstract");
+      return;
+    }
+
+    if (!assignment) {
+      setSubmitError("Invalid session");
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const supabase = createBrowserClient();
+      const timestamp = Date.now();
+
+      // Upload report
+      const reportFileName = `${userEmail}-${timestamp}-report-${reportFile.name}`;
+      const reportPath = `projects/${assignmentId}/${reportFileName}`;
+
+      const { error: reportUploadError } = await supabase.storage
+        .from("assignments")
+        .upload(reportPath, reportFile);
+
+      if (reportUploadError) {
+        throw new Error("Failed to upload report: " + reportUploadError.message);
+      }
+
+      const { data: reportUrlData } = supabase.storage
+        .from("assignments")
+        .getPublicUrl(reportPath);
+
+      // Upload code ZIP
+      const codeFileName = `${userEmail}-${timestamp}-code-${codeZipFile.name}`;
+      const codePath = `projects/${assignmentId}/${codeFileName}`;
+
+      const { error: codeUploadError } = await supabase.storage
+        .from("assignments")
+        .upload(codePath, codeZipFile);
+
+      if (codeUploadError) {
+        throw new Error("Failed to upload code: " + codeUploadError.message);
+      }
+
+      const { data: codeUrlData } = supabase.storage
+        .from("assignments")
+        .getPublicUrl(codePath);
+
+      // Upload PPT if provided
+      let pptUrl: string | null = null;
+      let pptName: string | null = null;
+
+      if (pptFile) {
+        const pptFileName = `${userEmail}-${timestamp}-ppt-${pptFile.name}`;
+        const pptPath = `projects/${assignmentId}/${pptFileName}`;
+
+        const { error: pptUploadError } = await supabase.storage
+          .from("assignments")
+          .upload(pptPath, pptFile);
+
+        if (pptUploadError) {
+          throw new Error("Failed to upload presentation: " + pptUploadError.message);
+        }
+
+        const { data: pptUrlData } = supabase.storage
+          .from("assignments")
+          .getPublicUrl(pptPath);
+
+        pptUrl = pptUrlData.publicUrl;
+        pptName = pptFile.name;
+      }
+
+      // Calculate attempt number
+      const attemptNumber = submissions.length + 1;
+
+      // Insert submission
+      const { error: insertError } = await (supabase.from("submissions") as any)
+        .insert({
+          assignment_id: assignmentId,
+          student_email: userEmail,
+          team_members: teamMembers.trim(),
+          abstract: abstract.trim(),
+          github_link: githubLink.trim() || null,
+          report_url: reportUrlData.publicUrl,
+          report_name: reportFile.name,
+          code_zip_url: codeUrlData.publicUrl,
+          code_zip_name: codeZipFile.name,
+          ppt_url: pptUrl,
+          ppt_name: pptName,
+          attempt: attemptNumber,
+          status: "submitted",
+          file_url: reportUrlData.publicUrl,
+          file_name: reportFile.name,
+        });
+
+      if (insertError) {
+        throw new Error("Failed to submit: " + insertError.message);
+      }
+
+      // Notify faculty
+      await (supabase.from("assignment_notifications") as any).insert({
+        user_email: assignment.created_by_email,
+        message: `${userEmail} submitted a project for ${assignment.title}`,
+        link: `/assignments/${assignmentId}`,
+        is_read: false,
+      });
+
+      // Reset form and reload data
+      setTeamMembers("");
+      setAbstract("");
+      setGithubLink("");
+      setReportFile(null);
+      setCodeZipFile(null);
+      setPptFile(null);
+      await fetchData();
+    } catch (err: any) {
+      console.error("Project submit error:", err);
+      setSubmitError(err.message || "Failed to submit project");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleGrade = async (submissionId: string, studentEmail: string) => {
     if (!assignment) return;
 
@@ -475,8 +633,14 @@ export default function AssignmentDetailPage() {
       setGradingMarks(0);
       setGradingFeedback("");
       setGradingError(null);
+      setCustomTestExpanded(null);
+      setCustomResult(null);
+      setCustomInput("");
     } else {
       setExpandedRow(email);
+      setCustomTestExpanded(null);
+      setCustomResult(null);
+      setCustomInput("");
 
       // For code assignments, pre-fill with suggested marks if marks is empty
       if (
@@ -500,6 +664,141 @@ export default function AssignmentDetailPage() {
 
       setGradingFeedback(submission?.feedback ?? "");
       setGradingError(null);
+    }
+  };
+
+  const handleRerunTests = async (submissionId: string) => {
+    if (!assignment || !assignment.language_id) return;
+
+    setRerunning(submissionId);
+    setGradingError(null);
+
+    try {
+      const supabase = createBrowserClient();
+
+      // Fetch test cases
+      const { data: testCasesData } = await supabase
+        .from("test_cases")
+        .select("*")
+        .eq("assignment_id", assignmentId)
+        .order("sort_order", { ascending: true });
+
+      const cases = (testCasesData ?? []) as TestCase[];
+
+      // Get submission code
+      const sub = studentsWithSubmissions
+        .flatMap((s) => (s.latestSubmission ? [s.latestSubmission] : []))
+        .find((s) => s.id === submissionId);
+
+      if (!sub || !sub.code_text) {
+        throw new Error("No code found for this submission");
+      }
+
+      // Run tests
+      const response = await fetch("/api/run-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_code: sub.code_text,
+          language_id: assignment.language_id,
+          assignment_id: assignmentId,
+          test_cases: cases.map((tc) => ({
+            input: tc.input,
+            expected_output: tc.expected_output,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to run tests");
+      }
+
+      const result = await response.json();
+
+      // Update submission in database
+      const { error: updateError } = await (supabase.from("submissions") as any)
+        .update({
+          tests_passed: result.passed,
+          tests_total: result.total,
+          test_results: result.results,
+          compile_error: result.compile_error,
+          max_time: result.max_time,
+          max_memory: result.max_memory,
+        })
+        .eq("id", submissionId);
+
+      if (updateError) {
+        throw new Error("Failed to update submission: " + updateError.message);
+      }
+
+      // Refresh data
+      await fetchData();
+
+      // Update suggested marks if applicable
+      if (
+        result.compile_error === null &&
+        result.passed !== null &&
+        result.total > 0
+      ) {
+        const suggestedMarks = Math.round(
+          (result.passed / result.total) * assignment.max_marks
+        );
+        setGradingMarks(suggestedMarks);
+      }
+    } catch (err: any) {
+      console.error("Rerun error:", err);
+      setGradingError(err.message || "Failed to rerun tests");
+    } finally {
+      setRerunning(null);
+    }
+  };
+
+  const handleCustomTest = async (submissionId: string) => {
+    if (!assignment || !assignment.language_id) return;
+
+    setCustomRunning(true);
+    setGradingError(null);
+
+    try {
+      // Get submission code
+      const sub = studentsWithSubmissions
+        .flatMap((s) => (s.latestSubmission ? [s.latestSubmission] : []))
+        .find((s) => s.id === submissionId);
+
+      if (!sub || !sub.code_text) {
+        throw new Error("No code found for this submission");
+      }
+
+      // Run with custom input
+      const response = await fetch("/api/run-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_code: sub.code_text,
+          language_id: assignment.language_id,
+          assignment_id: assignmentId,
+          test_cases: [
+            {
+              input: customInput,
+              expected_output: "",
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to run code");
+      }
+
+      const result = await response.json();
+      setCustomResult(result);
+    } catch (err: any) {
+      console.error("Custom test error:", err);
+      setGradingError(err.message || "Failed to run custom test");
+    } finally {
+      setCustomRunning(false);
     }
   };
 
@@ -674,29 +973,217 @@ export default function AssignmentDetailPage() {
             </p>
           </div>
 
-          {/* Submissions Table */}
-          <div className="card mb-6">
-            <h2 className="section-heading mb-4">Student Submissions</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className="table-header">Student Email</th>
-                    <th className="table-header">Submitted At</th>
-                    <th className="table-header">Attempts</th>
-                    <th className="table-header">File</th>
-                    <th className="table-header">Status</th>
-                    {assignment.type === "code" && (
-                      <th className="table-header">Auto Result</th>
+          {/* Project Submissions (Panel View) */}
+          {assignment.type === "project" ? (
+            <div className="space-y-4 mb-6">
+              {studentsWithSubmissions.map((student) => {
+                const sub = student.latestSubmission;
+                const isExpanded = expandedRow === student.email;
+
+                if (!sub) return null;
+
+                const teamMembersList = (sub.team_members || "").split("\n").filter((line) => line.trim());
+
+                return (
+                  <div key={student.email} className="card">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <h3 className="text-base font-semibold text-college-secondary font-poppins">
+                          {student.full_name || student.email}
+                        </h3>
+                        <p className="text-xs text-gray-500 font-poppins">{student.email}</p>
+                        <div className="flex items-center gap-3 mt-2">
+                          <span
+                            className={`text-xs font-semibold px-3 py-1 rounded-full ${getStatusBadgeClass(
+                              sub.status
+                            )}`}
+                          >
+                            {sub.status}
+                          </span>
+                          <span className="text-xs text-gray-500 font-poppins">
+                            Submitted: {formatDateTime(sub.submitted_at)}
+                          </span>
+                          {sub.marks !== null && sub.marks !== undefined && (
+                            <span className="text-xs font-semibold text-college-accent font-poppins">
+                              {sub.marks}/{assignment.max_marks}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => toggleRow(student.email, sub)}
+                        className="text-college-secondary text-sm font-poppins hover:underline"
+                      >
+                        {isExpanded ? "Close" : "Grade"}
+                      </button>
+                    </div>
+
+                    {/* Team Members */}
+                    {teamMembersList.length > 0 && (
+                      <div className="mb-3">
+                        <h4 className="text-xs font-semibold text-gray-700 font-poppins mb-1">
+                          Team Members:
+                        </h4>
+                        <ul className="list-disc list-inside text-sm text-gray-600 font-poppins space-y-0.5">
+                          {teamMembersList.map((member, idx) => (
+                            <li key={idx}>{member}</li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
-                    <th className="table-header">Marks</th>
-                    <th className="table-header">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {studentsWithSubmissions.map((student) => {
-                    const sub = student.latestSubmission;
-                    const isExpanded = expandedRow === student.email;
+
+                    {/* Abstract */}
+                    {sub.abstract && (
+                      <div className="mb-3">
+                        <h4 className="text-xs font-semibold text-gray-700 font-poppins mb-1">
+                          Abstract:
+                        </h4>
+                        <p className="text-sm text-gray-600 font-poppins whitespace-pre-wrap">
+                          {sub.abstract}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* GitHub Link */}
+                    {sub.github_link && (
+                      <div className="mb-3">
+                        <a
+                          href={sub.github_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block bg-gray-800 text-white px-4 py-2 rounded-lg font-poppins text-sm hover:bg-gray-900 transition-colors"
+                        >
+                          🔗 Open GitHub / Demo Link
+                        </a>
+                      </div>
+                    )}
+
+                    {/* File Links */}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {sub.report_url && (
+                        <a
+                          href={sub.report_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block bg-blue-500 text-white px-4 py-2 rounded-lg font-poppins text-sm hover:bg-blue-600 transition-colors"
+                        >
+                          📄 Report
+                        </a>
+                      )}
+                      {sub.code_zip_url && (
+                        <a
+                          href={sub.code_zip_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block bg-green-500 text-white px-4 py-2 rounded-lg font-poppins text-sm hover:bg-green-600 transition-colors"
+                        >
+                          📦 Code (ZIP)
+                        </a>
+                      )}
+                      {sub.ppt_url && (
+                        <a
+                          href={sub.ppt_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block bg-orange-500 text-white px-4 py-2 rounded-lg font-poppins text-sm hover:bg-orange-600 transition-colors"
+                        >
+                          📊 Presentation
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Grading Form (Expanded) */}
+                    {isExpanded && (
+                      <div className="border-t border-gray-200 pt-4 mt-4">
+                        <h4 className="text-sm font-semibold text-college-accent font-poppins mb-3">
+                          Grade Submission
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
+                              Marks (out of {assignment.max_marks})
+                            </label>
+                            <input
+                              type="number"
+                              value={gradingMarks}
+                              onChange={(e) =>
+                                setGradingMarks(parseInt(e.target.value) || 0)
+                              }
+                              min={0}
+                              max={assignment.max_marks}
+                              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                            />
+                          </div>
+                        </div>
+                        <div className="mb-4">
+                          <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
+                            Feedback
+                          </label>
+                          <textarea
+                            value={gradingFeedback}
+                            onChange={(e) => setGradingFeedback(e.target.value)}
+                            placeholder="Enter feedback for the student"
+                            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
+                            rows={3}
+                          />
+                        </div>
+                        {gradingError && (
+                          <p className="text-red-500 text-sm font-poppins mb-3">
+                            {gradingError}
+                          </p>
+                        )}
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => handleGrade(sub.id, student.email)}
+                            disabled={grading}
+                            className="bg-green-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-green-600 transition-colors"
+                          >
+                            {grading ? "Saving..." : "Save Grade"}
+                          </button>
+                          <button
+                            onClick={() => handleReturn(sub.id, student.email)}
+                            disabled={grading}
+                            className="bg-orange-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-orange-600 transition-colors"
+                          >
+                            {grading ? "Returning..." : "Return for Correction"}
+                          </button>
+                          <button
+                            onClick={() => toggleRow(student.email, sub)}
+                            className="btn-secondary text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Submissions Table (Document/Code/Link) */
+            <div className="card mb-6">
+              <h2 className="section-heading mb-4">Student Submissions</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className="table-header">Student Email</th>
+                      <th className="table-header">Submitted At</th>
+                      <th className="table-header">Attempts</th>
+                      <th className="table-header">File</th>
+                      <th className="table-header">Status</th>
+                      {assignment.type === "code" && (
+                        <th className="table-header">Auto Result</th>
+                      )}
+                      <th className="table-header">Marks</th>
+                      <th className="table-header">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studentsWithSubmissions.map((student) => {
+                      const sub = student.latestSubmission;
+                      const isExpanded = expandedRow === student.email;
 
                     return (
                       <>
@@ -935,6 +1422,120 @@ export default function AssignmentDetailPage() {
                                   </div>
                                 )}
 
+                                {/* Re-run Test Cases and Custom Test - Code Assignments Only */}
+                                {assignment.type === "code" && sub.code_text && (
+                                  <div className="mb-4 space-y-3">
+                                    {/* Re-run Test Cases Button */}
+                                    <div>
+                                      <button
+                                        onClick={() => handleRerunTests(sub.id)}
+                                        disabled={rerunning === sub.id}
+                                        className="bg-blue-500 text-white px-4 py-2 rounded-lg font-poppins font-semibold text-sm hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        {rerunning === sub.id ? "Running..." : "🔄 Re-run Test Cases"}
+                                      </button>
+                                    </div>
+
+                                    {/* Custom Test Panel */}
+                                    <div>
+                                      <button
+                                        onClick={() => {
+                                          setCustomTestExpanded(
+                                            customTestExpanded === sub.id ? null : sub.id
+                                          );
+                                          setCustomResult(null);
+                                          setCustomInput("");
+                                        }}
+                                        className="text-sm text-college-secondary hover:text-college-accent font-poppins font-medium"
+                                      >
+                                        {customTestExpanded === sub.id ? "− Hide Custom Input" : "+ Run Custom Input"}
+                                      </button>
+
+                                      {customTestExpanded === sub.id && (
+                                        <div className="mt-3 border-2 border-gray-200 rounded-lg p-4 bg-gray-50">
+                                          <div className="mb-3">
+                                            <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
+                                              Custom Input (stdin)
+                                            </label>
+                                            <textarea
+                                              value={customInput}
+                                              onChange={(e) => setCustomInput(e.target.value)}
+                                              placeholder="Enter custom input for testing..."
+                                              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-mono text-sm focus:outline-none focus:border-college-secondary resize-none"
+                                              rows={4}
+                                            />
+                                          </div>
+
+                                          <button
+                                            onClick={() => handleCustomTest(sub.id)}
+                                            disabled={customRunning}
+                                            className="bg-purple-500 text-white px-4 py-2 rounded-lg font-poppins font-semibold text-sm hover:bg-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >
+                                            {customRunning ? "Running..." : "▶ Run"}
+                                          </button>
+
+                                          {customResult && (
+                                            <div className="mt-4 space-y-3">
+                                              {customResult.compile_error ? (
+                                                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-3">
+                                                  <p className="text-xs font-semibold text-red-700 font-poppins mb-1">
+                                                    Compilation Error
+                                                  </p>
+                                                  <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap overflow-x-auto">
+                                                    {customResult.compile_error}
+                                                  </pre>
+                                                </div>
+                                              ) : (
+                                                <>
+                                                  {customResult.results && customResult.results[0] && (
+                                                    <>
+                                                      {/* Output */}
+                                                      <div>
+                                                        <label className="block text-xs font-semibold text-gray-700 font-poppins mb-1">
+                                                          Output:
+                                                        </label>
+                                                        <pre className="text-xs font-mono bg-white border-2 border-gray-300 p-3 rounded-lg overflow-x-auto max-h-40 overflow-y-auto">
+                                                          {customResult.results[0].actual || "(no output)"}
+                                                        </pre>
+                                                      </div>
+
+                                                      {/* Errors (only if non-empty) */}
+                                                      {customResult.results[0].error && (
+                                                        <div>
+                                                          <label className="block text-xs font-semibold text-red-700 font-poppins mb-1">
+                                                            Errors:
+                                                          </label>
+                                                          <pre className="text-xs font-mono bg-red-50 border-2 border-red-300 text-red-600 p-3 rounded-lg overflow-x-auto max-h-40 overflow-y-auto">
+                                                            {customResult.results[0].error}
+                                                          </pre>
+                                                        </div>
+                                                      )}
+
+                                                      {/* Time and Memory */}
+                                                      <div className="flex gap-4">
+                                                        <div className="flex-1 bg-green-50 border border-green-300 rounded p-2">
+                                                          <p className="text-xs text-gray-600 font-poppins">
+                                                            Time: <span className="font-semibold text-green-700">{customResult.results[0].time?.toFixed(3)} s</span>
+                                                          </p>
+                                                        </div>
+                                                        <div className="flex-1 bg-purple-50 border border-purple-300 rounded p-2">
+                                                          <p className="text-xs text-gray-600 font-poppins">
+                                                            Memory: <span className="font-semibold text-purple-700">{customResult.results[0].memory} KB</span>
+                                                          </p>
+                                                        </div>
+                                                      </div>
+                                                    </>
+                                                  )}
+                                                </>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
                                 {/* Suggested Marks (Code Assignments Only) */}
                                 {assignment.type === "code" &&
                                   !sub.compile_error &&
@@ -1022,6 +1623,7 @@ export default function AssignmentDetailPage() {
               </table>
             </div>
           </div>
+          )}
 
           {/* Missing Submissions */}
           {missingStudents.length > 0 && (
@@ -1070,6 +1672,16 @@ export default function AssignmentDetailPage() {
         {/* Assignment Details */}
         <div className="card mb-6">
           <h1 className="page-heading mb-4">{assignment.title}</h1>
+
+          {/* Project Category Display */}
+          {assignment.type === "project" && assignment.project_category && (
+            <div className="mb-4 pb-4 border-b border-college-peach">
+              <span className="text-xs text-gray-500 font-poppins">Project Category:</span>
+              <p className="text-base font-bold text-college-accent font-poppins mt-1">
+                {PROJECT_CATEGORIES.find(cat => cat.id === assignment.project_category)?.label || assignment.project_category}
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
@@ -1156,7 +1768,16 @@ export default function AssignmentDetailPage() {
                 <thead>
                   <tr>
                     <th className="table-header">Attempt</th>
-                    <th className="table-header">File</th>
+                    {assignment.type !== "project" && (
+                      <th className="table-header">File</th>
+                    )}
+                    {assignment.type === "project" && (
+                      <>
+                        <th className="table-header">Report</th>
+                        <th className="table-header">Code</th>
+                        <th className="table-header">PPT</th>
+                      </>
+                    )}
                     <th className="table-header">Submitted At</th>
                     <th className="table-header">Status</th>
                     {assignment.type === "code" && (
@@ -1172,16 +1793,64 @@ export default function AssignmentDetailPage() {
                       <td className="px-4 py-3 text-sm text-college-text font-poppins font-semibold">
                         #{submission.attempt}
                       </td>
-                      <td className="px-4 py-3">
-                        <a
-                          href={submission.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-college-secondary text-sm font-poppins hover:underline"
-                        >
-                          {submission.file_name}
-                        </a>
-                      </td>
+                      {assignment.type !== "project" && (
+                        <td className="px-4 py-3">
+                          <a
+                            href={submission.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-college-secondary text-sm font-poppins hover:underline"
+                          >
+                            {submission.file_name}
+                          </a>
+                        </td>
+                      )}
+                      {assignment.type === "project" && (
+                        <>
+                          <td className="px-4 py-3">
+                            {submission.report_url ? (
+                              <a
+                                href={submission.report_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-college-secondary text-sm font-poppins hover:underline"
+                              >
+                                📄 {submission.report_name}
+                              </a>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {submission.code_zip_url ? (
+                              <a
+                                href={submission.code_zip_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-college-secondary text-sm font-poppins hover:underline"
+                              >
+                                📦 {submission.code_zip_name}
+                              </a>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {submission.ppt_url ? (
+                              <a
+                                href={submission.ppt_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-college-secondary text-sm font-poppins hover:underline"
+                              >
+                                📊 {submission.ppt_name}
+                              </a>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </>
+                      )}
                       <td className="px-4 py-3 text-sm text-gray-600 font-poppins">
                         {formatDateTime(submission.submitted_at)}
                       </td>
@@ -1507,6 +2176,125 @@ export default function AssignmentDetailPage() {
                   </div>
                 )}
               </div>
+            ) : assignment.type === "project" ? (
+              /* Project Submission Form */
+              <form onSubmit={handleProjectSubmit}>
+                <div className="space-y-4">
+                  {/* Team Members */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                      Team Members <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={teamMembers}
+                      onChange={(e) => setTeamMembers(e.target.value)}
+                      placeholder="Enter team member names and roll numbers (one per line)&#10;Example:&#10;John Doe - 12345&#10;Jane Smith - 12346"
+                      className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
+                      rows={4}
+                      required
+                    />
+                  </div>
+
+                  {/* Abstract */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                      Abstract / Project Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={abstract}
+                      onChange={(e) => setAbstract(e.target.value)}
+                      placeholder="Provide a brief description of your project, objectives, and key features"
+                      className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
+                      rows={6}
+                      required
+                    />
+                  </div>
+
+                  {/* GitHub Link */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                      GitHub / Live Demo Link (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={githubLink}
+                      onChange={(e) => setGithubLink(e.target.value)}
+                      placeholder="https://github.com/username/project or https://demo-link.com"
+                      className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                    />
+                  </div>
+
+                  {/* Project Report */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                      Project Report <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="file"
+                      onChange={(e) => setReportFile(e.target.files?.[0] || null)}
+                      accept=".pdf,.doc,.docx"
+                      className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                      required
+                    />
+                    {reportFile && (
+                      <p className="text-xs text-gray-500 font-poppins mt-2">
+                        Selected: {reportFile.name}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Code ZIP */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                      Code (ZIP) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="file"
+                      onChange={(e) => setCodeZipFile(e.target.files?.[0] || null)}
+                      accept=".zip,.rar"
+                      className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                      required
+                    />
+                    {codeZipFile && (
+                      <p className="text-xs text-gray-500 font-poppins mt-2">
+                        Selected: {codeZipFile.name}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Presentation */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                      Presentation (Optional)
+                    </label>
+                    <input
+                      type="file"
+                      onChange={(e) => setPptFile(e.target.files?.[0] || null)}
+                      accept=".ppt,.pptx,.pdf"
+                      className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                    />
+                    {pptFile && (
+                      <p className="text-xs text-gray-500 font-poppins mt-2">
+                        Selected: {pptFile.name}
+                      </p>
+                    )}
+                  </div>
+
+                  {submitError && (
+                    <div className="bg-red-50 border-2 border-red-300 rounded-lg p-3">
+                      <p className="text-red-700 text-sm font-poppins">{submitError}</p>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="btn-primary"
+                  >
+                    {submitting ? "Submitting..." : "Submit Project"}
+                  </button>
+                </div>
+              </form>
             ) : (
               /* Regular File Upload Form for Code/Document Assignments */
               <form onSubmit={handleSubmit}>
