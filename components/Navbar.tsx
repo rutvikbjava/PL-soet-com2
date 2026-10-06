@@ -48,9 +48,9 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
   const isStudent = userRole === "student";
 
   return (
-    <nav className="bg-white border-b border-college-peach shadow-sm h-[70px] px-8 flex items-center justify-between">
+    <nav className="bg-white border-b border-college-peach shadow-sm h-[70px] px-4 sm:px-8 flex items-center gap-4">
       {/* Left side - Logo and text */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-shrink-0">
         <Image
           src="/photos/college-logo.png"
           width={52}
@@ -58,7 +58,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
           alt="MGM University SOET"
           className="object-contain"
         />
-        <div className="flex flex-col">
+        <div className="hidden lg:flex flex-col">
           <span className="font-poppins font-bold text-college-accent text-base leading-tight">
             MGM University
           </span>
@@ -68,78 +68,85 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
         </div>
       </div>
 
-      {/* Center navigation links */}
-      <div className="hidden md:flex items-center gap-6">
-        {!isStudent && (
+      {/* Center navigation links with horizontal scroll */}
+      <div className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-college-peach scrollbar-track-transparent hover:scrollbar-thumb-college-secondary">
+        <div className="flex items-center gap-4 lg:gap-6 min-w-max px-2">
+          {!isStudent && (
+            <Link
+              href="/dashboard"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+            >
+              Dashboard
+            </Link>
+          )}
           <Link
-            href="/dashboard"
-            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+            href="/assignments"
+            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
           >
-            Dashboard
+            Assignments
           </Link>
-        )}
-        <Link
-          href="/assignments"
-          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-        >
-          Assignments
-        </Link>
-        {!isStudent && (
-          <>
+          {!isStudent && (
+            <>
+              <Link
+                href="/upload"
+                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+              >
+                Upload Document
+              </Link>
+              <Link
+                href="/notices/create"
+                className="bg-college-secondary text-white px-3 py-1 rounded-full text-sm font-poppins font-medium hover:bg-college-secondary-dark transition-colors whitespace-nowrap"
+              >
+                Create Notice
+              </Link>
+              <Link
+                href="/audit"
+                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+              >
+                Audit Trail
+              </Link>
+              <Link
+                href="/analytics"
+                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+              >
+                Analytics
+              </Link>
+              <Link
+                href="/notice-board"
+                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+              >
+                Notice Board
+              </Link>
+            </>
+          )}
+          {userRole === "faculty" && (
             <Link
-              href="/upload"
-              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+              href="/assignments/analytics"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
             >
-              Upload Document
+              Assignment Analytics
             </Link>
-            <Link
-              href="/notices/create"
-              className="bg-college-secondary text-white px-3 py-1 rounded-full text-sm font-poppins font-medium hover:bg-college-secondary-dark transition-colors"
-            >
-              Create Notice
-            </Link>
-            <Link
-              href="/audit"
-              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-            >
-              Audit Trail
-            </Link>
-            <Link
-              href="/analytics"
-              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-            >
-              Analytics
-            </Link>
-            <Link
-              href="/notice-board"
-              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-            >
-              Notice Board
-            </Link>
-          </>
-        )}
-        {userRole === "faculty" && (
-          <Link
-            href="/assignments/analytics"
-            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
-          >
-            Assignment Analytics
-          </Link>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Right side - Notifications, User email and logout */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
         <Link
           href="/notifications"
-          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors"
+          className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors relative"
         >
-          🔔 {notificationCount > 0 && <span>{notificationCount}</span>}
+          🔔 
+          {notificationCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+              {notificationCount}
+            </span>
+          )}
         </Link>
-        <span className="text-xs text-gray-500 font-poppins hidden sm:inline">
+        <span className="text-xs text-gray-500 font-poppins hidden xl:inline truncate max-w-[150px]">
           {userEmail}
         </span>
-        <button onClick={handleLogout} className="btn-danger">
+        <button onClick={handleLogout} className="btn-danger whitespace-nowrap">
           Logout
         </button>
       </div>
