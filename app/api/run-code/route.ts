@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase";
+import { matchOutput } from "@/lib/output-matcher";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -6,12 +9,14 @@ export const maxDuration = 60;
 interface TestCase {
   input: string;
   expected_output: string;
+  match_type?: "exact" | "smart";
 }
 
 interface RequestBody {
+  source_code: string;
   language_id: number;
-  code: string;
-  tests: TestCase[];
+  assignment_id: string;
+  test_cases: TestCase[];
 }
 
 interface Judge0Status {
@@ -29,50 +34,62 @@ interface Judge0Response {
 }
 
 interface TestResult {
-  index: number;
-  passed: boolean;
-  status: string;
   input: string;
   expected: string;
   actual: string;
-  error: string;
+  passed: boolean;
+  match_reason: string;
+  status: string;
   time: number;
   memory: number;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body: RequestBody = await request.json();
-    const { language_id, code, tests } = body;
+    // Verify user authentication
+    const session = await getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (!language_id || !code || !tests || !Array.isArray(tests)) {
+    const body: RequestBody = await request.json();
+    const { source_code, language_id, assignment_id, test_cases } = body;
+
+    if (!source_code || !language_id || !assignment_id || !test_cases || !Array.isArray(test_cases)) {
       return NextResponse.json(
-        { error: "Missing required fields: language_id, code, tests" },
+        { error: "Missing required fields: source_code, language_id, assignment_id, test_cases" },
         { status: 400 }
       );
     }
 
-    const BASE = process.env.JUDGE0_URL || "https://ce.judge0.com";
+    // Fetch assignment to get smart_grading setting
+    const adminClient = createAdminClient();
+    const { data: assignment } = await (adminClient as any)
+      .from("assignments")
+      .select("smart_grading")
+      .eq("id", assignment_id)
+      .single();
+
+    const useSmartGrading = assignment?.smart_grading ?? true;
+
     const results: TestResult[] = [];
     let passedCount = 0;
     let maxTime = 0;
     let maxMemory = 0;
 
     // Run tests sequentially
-    for (let i = 0; i < tests.length; i++) {
-      const test = tests[i];
-
+    for (const test_case of test_cases) {
+      // Prepare submission for Judge0
       const submissionPayload = {
-        source_code: code,
+        source_code: Buffer.from(source_code).toString("base64"),
         language_id,
-        stdin: test.input,
-        expected_output: test.expected_output,
-        cpu_time_limit: 2,
-        memory_limit: 128000,
+        stdin: Buffer.from(test_case.input || "").toString("base64"),
+        expected_output: Buffer.from(test_case.expected_output || "").toString("base64"),
+        base64_encoded: true,
       };
 
       const response = await fetch(
-        `${BASE}/submissions?base64_encoded=false&wait=true`,
+        "https://ce.judge0.com/submissions?wait=true",
         {
           method: "POST",
           headers: {
@@ -88,20 +105,39 @@ export async function POST(request: NextRequest) {
 
       const result: Judge0Response = await response.json();
 
+      // Decode stdout
+      const stdout = result.stdout
+        ? Buffer.from(result.stdout, "base64").toString()
+        : "";
+
       // Check for compilation error (status.id === 6)
       if (result.status.id === 6) {
+        const compileError = result.compile_output
+          ? Buffer.from(result.compile_output, "base64").toString()
+          : "Compilation failed";
+
         return NextResponse.json({
-          compile_error: result.compile_output || "Compilation failed",
+          compile_error: compileError,
           results: [],
           passed: 0,
-          total: tests.length,
+          total: test_cases.length,
           max_time: 0,
           max_memory: 0,
         });
       }
 
-      // Test passed if status.id === 3 (Accepted)
-      const passed = result.status.id === 3;
+      // Determine match type
+      const matchType = useSmartGrading
+        ? (test_case.match_type ?? "smart")
+        : "exact";
+
+      // Use output matcher
+      const { passed, reason } = matchOutput(
+        test_case.expected_output,
+        stdout,
+        matchType
+      );
+
       if (passed) {
         passedCount++;
       }
@@ -117,30 +153,29 @@ export async function POST(request: NextRequest) {
       }
 
       results.push({
-        index: i,
+        input: test_case.input,
+        expected: test_case.expected_output,
+        actual: stdout.trim(),
         passed,
-        status: result.status.description,
-        input: test.input,
-        expected: test.expected_output,
-        actual: result.stdout ?? "",
-        error: result.stderr ?? "",
+        match_reason: reason,
+        status: result.status?.description ?? "Unknown",
         time: testTime,
         memory: testMemory,
       });
     }
 
     return NextResponse.json({
-      compile_error: null,
       results,
       passed: passedCount,
-      total: tests.length,
+      total: test_cases.length,
+      compile_error: null,
       max_time: maxTime,
       max_memory: maxMemory,
     });
   } catch (error: any) {
     console.error("Code runner error:", error);
     return NextResponse.json(
-      { error: "Code runner unavailable, try again" },
+      { error: error.message || "Code runner unavailable, try again" },
       { status: 500 }
     );
   }

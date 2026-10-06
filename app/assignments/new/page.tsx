@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import { LANGUAGES } from "@/lib/languages";
+import { detectLinkType, isValidUrl } from "@/lib/link-detector";
 import Navbar from "@/components/Navbar";
 
 interface TestCase {
@@ -29,12 +30,16 @@ export default function NewAssignmentPage() {
   const [file, setFile] = useState<File | null>(null);
 
   // Code assignment fields
-  const [assignmentType, setAssignmentType] = useState<"document" | "code">("document");
+  const [assignmentType, setAssignmentType] = useState<"document" | "code" | "link">("document");
   const [languageId, setLanguageId] = useState<number>(103); // Default to C
+  const [smartGrading, setSmartGrading] = useState(true);
   const [testCases, setTestCases] = useState<TestCase[]>([
     { input: "", expected_output: "" },
     { input: "", expected_output: "" },
   ]);
+  
+  // Link assignment fields
+  const [submissionLink, setSubmissionLink] = useState("");
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -159,6 +164,12 @@ export default function NewAssignmentPage() {
       const selectedLanguage = LANGUAGES.find((lang) => lang.id === languageId);
       const languageName = selectedLanguage ? selectedLanguage.name : null;
 
+      // Detect submission link type for link assignments
+      let submissionLinkType = null;
+      if (assignmentType === "link" && submissionLink && isValidUrl(submissionLink)) {
+        submissionLinkType = detectLinkType(submissionLink).type;
+      }
+
       // Insert assignment
       const { data: assignmentData, error: insertError } = await (
         supabase.from("assignments") as any
@@ -175,6 +186,9 @@ export default function NewAssignmentPage() {
           type: assignmentType,
           language_id: assignmentType === "code" ? languageId : null,
           language_name: assignmentType === "code" ? languageName : null,
+          smart_grading: assignmentType === "code" ? smartGrading : null,
+          submission_link: assignmentType === "link" ? submissionLink : null,
+          submission_link_type: assignmentType === "link" ? submissionLinkType : null,
         })
         .select()
         .single();
@@ -297,12 +311,13 @@ export default function NewAssignmentPage() {
             <select
               value={assignmentType}
               onChange={(e) =>
-                setAssignmentType(e.target.value as "document" | "code")
+                setAssignmentType(e.target.value as "document" | "code" | "link")
               }
               className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
             >
               <option value="document">Document Submission</option>
               <option value="code">Programming Assignment</option>
+              <option value="link">External Link (Google Form / Drive)</option>
             </select>
           </div>
 
@@ -327,6 +342,56 @@ export default function NewAssignmentPage() {
                 Students read input from stdin and print output. Java class must
                 be named Main.
               </p>
+            </div>
+          )}
+
+          {/* Smart Grading (only for code assignments) */}
+          {assignmentType === "code" && (
+            <div className="mb-6">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="smartGrading"
+                  checked={smartGrading}
+                  onChange={(e) => setSmartGrading(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="smartGrading" className="text-sm font-medium text-gray-700 font-poppins">
+                  Enable Smart Output Matching
+                </label>
+              </div>
+              <p className="text-xs text-gray-400 font-poppins mt-1 ml-7">
+                Handles extra text, whitespace, and case differences in student output
+              </p>
+            </div>
+          )}
+
+          {/* Submission Link (only for link assignments) */}
+          {assignmentType === "link" && (
+            <div className="mb-6">
+              <h3 className="section-heading mb-4">Submission Link</h3>
+              
+              <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                Google Form or Drive URL <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={submissionLink}
+                onChange={(e) => setSubmissionLink(e.target.value)}
+                placeholder="https://forms.gle/... or https://drive.google.com/..."
+                className="input-field"
+                required={assignmentType === "link"}
+              />
+              
+              {submissionLink && isValidUrl(submissionLink) && (
+                <div className="bg-college-peach rounded px-3 py-2 text-sm text-college-accent font-poppins mt-2">
+                  Detected: {detectLinkType(submissionLink).label} — Students will see a "{detectLinkType(submissionLink).buttonText}" button
+                </div>
+              )}
+              
+              {submissionLink && !isValidUrl(submissionLink) && (
+                <p className="text-red-500 text-xs mt-1">Please enter a valid URL</p>
+              )}
             </div>
           )}
 

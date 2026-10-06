@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import { LANGUAGES } from "@/lib/languages";
 import Navbar from "@/components/Navbar";
+import { detectLinkType, isValidUrl } from "@/lib/link-detector";
 
 interface Assignment {
   id: string;
@@ -20,6 +21,8 @@ interface Assignment {
   type?: string;
   language_id?: number | null;
   language_name?: string | null;
+  submission_link?: string | null;
+  submission_link_type?: string | null;
 }
 
 interface TestCase {
@@ -40,6 +43,7 @@ interface TestResult {
   error: string;
   time: number;
   memory: number;
+  match_reason?: string;
 }
 
 interface Submission {
@@ -61,6 +65,8 @@ interface Submission {
   compile_error?: string | null;
   max_time?: number | null;
   max_memory?: number | null;
+  link_opened_at?: string | null;
+  submitted_via?: string | null;
 }
 
 interface StudentWithSubmission {
@@ -93,6 +99,11 @@ export default function AssignmentDetailPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [gradingError, setGradingError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  
+  // Link assignment states
+  const [hasOpened, setHasOpened] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [linkSubmitting, setLinkSubmitting] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -157,7 +168,15 @@ export default function AssignmentDetailPage() {
           .eq("student_email", email)
           .order("submitted_at", { ascending: false });
 
-        setSubmissions((submissionsData ?? []) as Submission[]);
+        const subs = (submissionsData ?? []) as Submission[];
+        setSubmissions(subs);
+        
+        // Initialize link assignment states
+        if (subs.length > 0 && (assignmentData as any).type === "link") {
+          const latestSub = subs[0];
+          setHasOpened(!!latestSub.link_opened_at);
+          setIsSubmitted(latestSub.submitted_via === "link");
+        }
       }
 
       // If faculty, fetch students and submissions
@@ -1264,6 +1283,7 @@ export default function AssignmentDetailPage() {
                             <th className="table-header">Error</th>
                             <th className="table-header">Time (s)</th>
                             <th className="table-header">Memory (KB)</th>
+                            <th className="table-header">Match Info</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1304,6 +1324,9 @@ export default function AssignmentDetailPage() {
                               <td className="px-4 py-3 text-sm font-poppins text-gray-600">
                                 {result.memory}
                               </td>
+                              <td className="px-4 py-3 text-xs text-gray-500 font-poppins">
+                                {result.match_reason ?? '—'}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1321,62 +1344,228 @@ export default function AssignmentDetailPage() {
             <h2 className="section-heading mb-4">
               {submissions.length > 0 ? "Resubmit Assignment" : "Submit Assignment"}
             </h2>
-            <form onSubmit={handleSubmit}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
-                  Upload File{" "}
-                  {assignment.type === "code" &&
-                    assignment.language_name &&
-                    LANGUAGES.find((l) => l.id === assignment.language_id)?.ext && (
-                      <span className="text-xs text-gray-500">
-                        (
-                        {
-                          LANGUAGES.find((l) => l.id === assignment.language_id)
-                            ?.ext
-                        }{" "}
-                        file)
-                      </span>
-                    )}{" "}
-                  <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="file"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  accept={
-                    assignment.type === "code" && assignment.language_id
-                      ? LANGUAGES.find((l) => l.id === assignment.language_id)?.ext
-                      : ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.py,.java,.js,.c,.cpp,.txt"
-                  }
-                  className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
-                  required
-                />
-                {file && (
-                  <p className="text-xs text-gray-500 font-poppins mt-2">
-                    Selected: {file.name}
-                  </p>
+            
+            {/* Link Assignment UI */}
+            {assignment.type === "link" && assignment.submission_link ? (
+              <div className="space-y-4">
+                {/* Link Info Card */}
+                <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="text-3xl">🔗</div>
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-college-secondary font-poppins mb-1">
+                        {detectLinkType(assignment.submission_link).label}
+                      </h3>
+                      <p className="text-xs text-gray-600 font-poppins mb-3">
+                        {assignment.submission_link_type === "google_form" 
+                          ? "Complete this Google Form to submit your assignment"
+                          : assignment.submission_link_type === "google_drive"
+                          ? "Access the shared Google Drive link"
+                          : "Open the external link to complete your assignment"
+                        }
+                      </p>
+                      <a
+                        href={assignment.submission_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-college-secondary font-poppins hover:underline break-all"
+                      >
+                        {assignment.submission_link}
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Button */}
+                {!hasOpened && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        setLinkSubmitting(true);
+                        setSubmitError(null);
+                        
+                        // Track link opening
+                        const response = await fetch(`/api/assignments/${assignmentId}/open-link`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                        });
+
+                        if (!response.ok) {
+                          const errorData = await response.json();
+                          throw new Error(errorData.message || "Failed to track link opening");
+                        }
+
+                        // Open link in new tab
+                        window.open(assignment.submission_link!, "_blank");
+                        
+                        // Update state
+                        setHasOpened(true);
+                        
+                        // Refresh data
+                        await fetchData();
+                      } catch (err: any) {
+                        console.error("Error opening link:", err);
+                        setSubmitError(err.message || "Failed to open link");
+                      } finally {
+                        setLinkSubmitting(false);
+                      }
+                    }}
+                    disabled={linkSubmitting}
+                    className="w-full bg-college-secondary text-white px-6 py-4 rounded-lg font-poppins font-semibold text-base hover:bg-college-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {linkSubmitting ? "Opening..." : detectLinkType(assignment.submission_link).buttonText}
+                  </button>
+                )}
+
+                {/* Success Box After Opening */}
+                {hasOpened && !isSubmitted && (
+                  <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="text-2xl">✅</div>
+                      <div className="flex-1">
+                        <h3 className="text-sm font-semibold text-green-700 font-poppins mb-1">
+                          Link Opened Successfully
+                        </h3>
+                        <p className="text-xs text-gray-600 font-poppins">
+                          {assignment.submission_link_type === "google_form"
+                            ? "After submitting the form, click the button below to notify your teacher."
+                            : "After completing your work, click the button below to mark as submitted."
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={async () => {
+                        try {
+                          setLinkSubmitting(true);
+                          setSubmitError(null);
+                          
+                          const response = await fetch(`/api/assignments/${assignmentId}/mark-submitted`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                          });
+
+                          if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.message || "Failed to mark as submitted");
+                          }
+
+                          // Update state
+                          setIsSubmitted(true);
+                          
+                          // Refresh data
+                          await fetchData();
+                        } catch (err: any) {
+                          console.error("Error marking as submitted:", err);
+                          setSubmitError(err.message || "Failed to mark as submitted");
+                        } finally {
+                          setLinkSubmitting(false);
+                        }
+                      }}
+                      disabled={linkSubmitting}
+                      className="w-full bg-green-600 text-white px-6 py-3 rounded-lg font-poppins font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {linkSubmitting ? "Submitting..." : "Mark as Submitted"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Already Submitted Message */}
+                {isSubmitted && (
+                  <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="text-2xl">🎉</div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-green-700 font-poppins mb-1">
+                          Assignment Submitted
+                        </h3>
+                        <p className="text-xs text-gray-600 font-poppins">
+                          Your teacher has been notified of your submission.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {submitError && (
+                  <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                    <p className="text-sm text-red-700 font-poppins">{submitError}</p>
+                  </div>
+                )}
+
+                {/* Helper Text for Google Forms */}
+                {assignment.submission_link_type === "google_form" && hasOpened && !isSubmitted && (
+                  <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <div className="text-lg">💡</div>
+                      <p className="text-xs text-gray-700 font-poppins">
+                        <strong>Note:</strong> After submitting the form, click "Mark as Submitted" to notify your teacher.
+                      </p>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {submitError && (
+            ) : (
+              /* Regular File Upload Form for Code/Document Assignments */
+              <form onSubmit={handleSubmit}>
                 <div className="mb-4">
-                  <p className="text-red-500 text-sm font-poppins">{submitError}</p>
+                  <label className="block text-sm font-medium text-gray-700 font-poppins mb-2">
+                    Upload File{" "}
+                    {assignment.type === "code" &&
+                      assignment.language_name &&
+                      LANGUAGES.find((l) => l.id === assignment.language_id)?.ext && (
+                        <span className="text-xs text-gray-500">
+                          (
+                          {
+                            LANGUAGES.find((l) => l.id === assignment.language_id)
+                              ?.ext
+                          }{" "}
+                          file)
+                        </span>
+                      )}{" "}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="file"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    accept={
+                      assignment.type === "code" && assignment.language_id
+                        ? LANGUAGES.find((l) => l.id === assignment.language_id)?.ext
+                        : ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.py,.java,.js,.c,.cpp,.txt"
+                    }
+                    className="w-full px-4 py-3 border-2 border-college-peach rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                    required
+                  />
+                  {file && (
+                    <p className="text-xs text-gray-500 font-poppins mt-2">
+                      Selected: {file.name}
+                    </p>
+                  )}
                 </div>
-              )}
 
-              <button
-                type="submit"
-                disabled={submitting || runningTests}
-                className="btn-primary"
-              >
-                {runningTests
-                  ? "Running tests..."
-                  : submitting
-                  ? "Submitting..."
-                  : assignment.type === "code"
-                  ? "Run & Submit"
-                  : "Submit Assignment"}
-              </button>
-            </form>
+                {submitError && (
+                  <div className="mb-4">
+                    <p className="text-red-500 text-sm font-poppins">{submitError}</p>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submitting || runningTests}
+                  className="btn-primary"
+                >
+                  {runningTests
+                    ? "Running tests..."
+                    : submitting
+                    ? "Submitting..."
+                    : assignment.type === "code"
+                    ? "Run & Submit"
+                    : "Submit Assignment"}
+                </button>
+              </form>
+            )}
           </div>
         ) : (
           <div className="card">
