@@ -204,9 +204,10 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Insert approval steps into database
+    // Insert approval steps into database with approver_id assigned
     const approvalRows = workflowSteps.map((step) => ({
       workflow_id: workflow.id,
+      approver_id: roleToUserId.get(step.requiredRole) || null,
       step_order: step.stepOrder,
       status: 'pending',
     }));
