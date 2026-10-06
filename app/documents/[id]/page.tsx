@@ -17,11 +17,13 @@ interface Document {
   created_at: string;
   creator_id: string;
   file_url?: string;
+  publicly_verifiable?: boolean;
 }
 
 interface Approval {
   id: string;
   workflow_id: string;
+  approver_id?: string;
   step_order: number;
   status: string;
   signed_at: string | null;
@@ -58,9 +60,15 @@ export default function DocumentDetailPage({
   const [embeddedSignaturePath, setEmbeddedSignaturePath] = useState<string | null>(null);
   
   const [rejectionComment, setRejectionComment] = useState<string>('');
+  const [makePublic, setMakePublic] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Public verification states
+  const [isUserAnApprover, setIsUserAnApprover] = useState<boolean>(false);
+  const [publiclyVerifiable, setPubliclyVerifiable] = useState<boolean>(false);
+  const [isCopied, setIsCopied] = useState<boolean>(false);
 
   const fetchDocumentData = async () => {
     try {
@@ -110,6 +118,16 @@ export default function DocumentDetailPage({
       setWorkflow(data.workflow);
       setApprovals(data.approvals || []);
       setViewableFileUrl(data.viewable_file_url || null);
+      
+      // Set publicly_verifiable state
+      setPubliclyVerifiable(data.document?.publicly_verifiable ?? false);
+      
+      // Check if current user is an approver on this document
+      const approvalsList = data.approvals || [];
+      const userIsApprover = approvalsList.some(
+        (approval: Approval) => approval.approver_id === currentUserId
+      );
+      setIsUserAnApprover(userIsApprover);
 
       setLoading(false);
     } catch (err: any) {
@@ -193,7 +211,8 @@ export default function DocumentDetailPage({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           action: 'approve', 
-          signature_url: signaturePath 
+          signature_url: signaturePath,
+          make_public: makePublic
         })
       });
       const actData = await actRes.json();
@@ -222,7 +241,8 @@ export default function DocumentDetailPage({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           action: 'reject',
-          comment: rejectionComment 
+          comment: rejectionComment,
+          make_public: makePublic
         })
       });
       const actData = await actRes.json();
@@ -234,6 +254,40 @@ export default function DocumentDetailPage({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleTogglePublicVerification = async (newValue: boolean) => {
+    if (!document) return;
+
+    try {
+      const supabase = createBrowserClient();
+      const { error: updateError } = await (supabase.from('documents') as any)
+        .update({ publicly_verifiable: newValue })
+        .eq('id', document.id);
+
+      if (updateError) {
+        console.error('Update error:', updateError);
+        setError('Failed to update verification status');
+        return;
+      }
+
+      setPubliclyVerifiable(newValue);
+    } catch (err: any) {
+      console.error('Toggle error:', err);
+      setError(err.message || 'Failed to update verification status');
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (!document) return;
+    
+    const verificationUrl = `${window.location.origin}/verify/${document.id}`;
+    navigator.clipboard.writeText(verificationUrl);
+    setIsCopied(true);
+    
+    setTimeout(() => {
+      setIsCopied(false);
+    }, 2000);
   };
 
   if (loading) {
@@ -295,6 +349,14 @@ export default function DocumentDetailPage({
     !!currentUserRole &&
     stepRole.toLowerCase() === currentUserRole.toLowerCase();
 
+  // Find user's completed approval (approved or rejected)
+  const myCompletedApproval = approvals?.find(
+    (a) => 
+      a.approver_id === userId && 
+      (a.status === "approved" || a.status === "rejected")
+  );
+  const showMyDecision = !!myCompletedApproval && !isMyTurnToApprove;
+
   return (
     <div className="min-h-screen bg-college-bg">
       <main className="max-w-5xl mx-auto px-6 py-8">
@@ -319,6 +381,44 @@ export default function DocumentDetailPage({
               <p className="text-sm text-red-600 font-poppins mt-2">
                 {rejectedApproval.comment}
               </p>
+            )}
+          </div>
+        )}
+
+        {/* Public Verification Card (only for approved/rejected docs and if user is approver) */}
+        {(document.status === "approved" || document.status === "rejected") && isUserAnApprover && (
+          <div className="card mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <h2 className="section-heading">Public Verification</h2>
+                <p className="text-sm text-gray-500 font-poppins">
+                  {publiclyVerifiable 
+                    ? "This document can be verified publicly." 
+                    : "This document is not publicly verifiable."}
+                </p>
+              </div>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={publiclyVerifiable}
+                  onChange={(e) => handleTogglePublicVerification(e.target.checked)}
+                  className="w-5 h-5 text-college-secondary border-gray-300 rounded focus:ring-college-secondary"
+                />
+              </label>
+            </div>
+            
+            {publiclyVerifiable && (
+              <div className="mt-4 pt-4 border-t border-college-peach">
+                <p className="text-sm text-gray-700 font-poppins mb-2">
+                  {window.location.origin}/verify/{document.id}
+                </p>
+                <button
+                  onClick={handleCopyLink}
+                  className="btn-secondary text-sm"
+                >
+                  {isCopied ? 'Copied!' : 'Copy Link'}
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -570,6 +670,22 @@ export default function DocumentDetailPage({
               />
             </div>
 
+            {/* Make Public Checkbox */}
+            <div className="mt-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={makePublic}
+                  onChange={(e) => setMakePublic(e.target.checked)}
+                  disabled={isSubmitting || isEmbedding}
+                  className="mt-1 w-4 h-4 text-college-secondary border-gray-300 rounded focus:ring-college-secondary"
+                />
+                <span className="text-sm text-gray-700 font-poppins">
+                  Make this document publicly verifiable after this action
+                </span>
+              </label>
+            </div>
+
             {/* STEP 4 — Approve and Reject Buttons */}
             {signatureDataUrl && (isPDF ? embeddedSignaturePath !== null : true) && (
               <div className="flex gap-4 mt-4">
@@ -600,8 +716,49 @@ export default function DocumentDetailPage({
           </div>
         )}
 
+        {/* Your Decision Card (when user has acted and no pending action) */}
+        {showMyDecision && myCompletedApproval && (
+          <div className="card mb-6">
+            <h2 className="section-heading">Your Decision</h2>
+            
+            <div className="flex items-center gap-3 mb-3">
+              <span
+                className={
+                  myCompletedApproval.status === "approved"
+                    ? "badge-approved"
+                    : "bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-semibold"
+                }
+              >
+                {myCompletedApproval.status === "approved" ? "Approved" : "Rejected"}
+              </span>
+              {myCompletedApproval.acted_at && (
+                <span className="text-sm text-gray-600 font-poppins">
+                  {formatDateTime(myCompletedApproval.acted_at)}
+                </span>
+              )}
+            </div>
+
+            {myCompletedApproval.comment && (
+              <p className="text-sm text-gray-600 font-poppins mb-3">
+                {myCompletedApproval.comment}
+              </p>
+            )}
+
+            {myCompletedApproval.signature_url && (
+              <div>
+                <img
+                  src={myCompletedApproval.signature_url}
+                  alt="Your signature"
+                  className="mt-2 border border-college-peach rounded p-1"
+                  style={{ maxHeight: "60px" }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Info Box when not user's turn */}
-        {!isMyTurnToApprove && document.status === "pending" && (
+        {!isMyTurnToApprove && !showMyDecision && document.status === "pending" && (
           <div className="bg-college-peach rounded-lg p-4 text-sm text-college-accent font-poppins mb-6">
             This document is awaiting approval from another authorized approver.
           </div>

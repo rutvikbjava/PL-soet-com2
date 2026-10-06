@@ -79,6 +79,14 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
               Dashboard
             </Link>
           )}
+          {(userRole === "hod" || userRole === "coe" || userRole === "principal") && (
+            <Link
+              href="/my-approvals"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+            >
+              My Approvals
+            </Link>
+          )}
           <Link
             href="/assignments"
             className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"

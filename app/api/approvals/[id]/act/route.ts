@@ -14,7 +14,7 @@ export async function POST(
 
     const approvalId = params.id
     const body = await request.json()
-    const { action, signature_url, comment } = body
+    const { action, signature_url, comment, make_public } = body
 
     if (!action || !['approve', 'reject'].includes(action)) {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
@@ -85,6 +85,14 @@ export async function POST(
         { error: 'Failed to update approval' },
         { status: 500 }
       )
+    }
+
+    // Update publicly_verifiable if make_public is true
+    if (make_public === true) {
+      await (supabase as any)
+        .from('documents')
+        .update({ publicly_verifiable: true })
+        .eq('id', documentId)
     }
 
     let documentStatus = 'pending'
