@@ -744,14 +744,16 @@ export default function DocumentDetailPage({
               </p>
             )}
 
-            {myCompletedApproval.signature_url && (
-              <div>
-                <img
-                  src={myCompletedApproval.signature_url}
-                  alt="Your signature"
-                  className="mt-2 border border-college-peach rounded p-1"
-                  style={{ maxHeight: "60px" }}
-                />
+            {myCompletedApproval.viewable_signature_url && (
+              <div className="mt-4">
+                <a
+                  href={myCompletedApproval.viewable_signature_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary"
+                >
+                  View Signed Document
+                </a>
               </div>
             )}
           </div>
