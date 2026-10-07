@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createBrowserClient } from "@/lib/supabase";
+import { createBrowserClient, getSignedUrl } from "@/lib/supabase";
 
 interface Document {
   id: string;
@@ -9,41 +9,32 @@ interface Document {
   type: string;
   department: string;
   scope: string;
-  file_url: string | null;
   status: string;
   created_at: string;
-  publicly_verifiable: boolean;
-}
-
-interface Workflow {
-  id: string;
-  document_id: string;
+  file_url?: string;
+  publicly_verifiable?: boolean;
 }
 
 interface Approval {
   id: string;
-  workflow_id: string;
-  approver_id: string;
   step_order: number;
   status: string;
-  comment: string | null;
-  acted_at: string | null;
-  approver_name: string | null;
-  approver_role: string | null;
+  comment?: string;
+  acted_at?: string;
+  approver_id?: string;
+  approver_name?: string;
+  approver_role?: string;
 }
 
-export default function PublicVerificationPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function VerifyPage({ params }: { params: { id: string } }) {
   const [document, setDocument] = useState<Document | null>(null);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [viewableFileUrl, setViewableFileUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAvailable, setIsAvailable] = useState(false);
 
   useEffect(() => {
-    const fetchVerificationData = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
 
@@ -64,7 +55,7 @@ export default function PublicVerificationPage({
 
         const doc = docData as Document;
 
-        // Check if document is available for public verification
+        // Check if document is publicly verifiable
         if (
           !doc.publicly_verifiable ||
           doc.status === "draft" ||
@@ -78,66 +69,93 @@ export default function PublicVerificationPage({
         setDocument(doc);
         setIsAvailable(true);
 
+        // Get signed URL for file if exists
+        if (doc.file_url) {
+          try {
+            const url = await getSignedUrl("documents", doc.file_url);
+            setViewableFileUrl(url);
+          } catch (err) {
+            console.error("Failed to get signed URL:", err);
+          }
+        }
+
         // Fetch workflow
-        const { data: workflowData } = await (supabase
+        const { data: workflowData, error: workflowError } = await (supabase
           .from("workflows") as any)
-          .select("id")
+          .select("id, generated_steps")
           .eq("document_id", params.id)
           .single();
 
-        if (!workflowData) {
+        if (workflowError || !workflowData) {
           setLoading(false);
           return;
         }
 
-        const workflow = workflowData as Workflow;
+        const workflow = workflowData as any;
+        const generatedSteps = workflow.generated_steps || [];
 
-        // Fetch approvals with user info
-        const { data: approvalsData } = await (supabase
+        // Fetch approvals
+        const { data: approvalsData, error: approvalsError } = await (supabase
           .from("approvals") as any)
-          .select(
-            `
-            id,
-            workflow_id,
-            approver_id,
-            step_order,
-            status,
-            comment,
-            acted_at
-          `
-          )
+          .select("id, step_order, status, comment, acted_at, approver_id")
           .eq("workflow_id", workflow.id)
           .order("step_order", { ascending: true });
 
-        const approvalsList = (approvalsData ?? []) as Approval[];
+        if (approvalsError) {
+          setLoading(false);
+          return;
+        }
 
-        // Fetch approver details for each approval
-        const approvalsWithUsers = await Promise.all(
-          approvalsList.map(async (approval) => {
-            const { data: userData } = await (supabase
-              .from("users") as any)
-              .select("full_name, role")
-              .eq("id", approval.approver_id)
-              .single();
+        const approvalsList = (approvalsData || []) as any[];
+
+        // For each approval, get approver name or role
+        const enrichedApprovals = await Promise.all(
+          approvalsList.map(async (approval: any) => {
+            if (approval.approver_id) {
+              // Fetch user name
+              const { data: userData } = await (supabase
+                .from("users") as any)
+                .select("full_name, role")
+                .eq("id", approval.approver_id)
+                .single();
+
+              if (userData) {
+                return {
+                  ...approval,
+                  approver_name: userData.full_name,
+                  approver_role: userData.role,
+                };
+              }
+            }
+
+            // Fallback to role from workflow steps
+            const step = generatedSteps.find(
+              (s: any) =>
+                (s.stepOrder ?? s.step_order ?? s.StepOrder) ===
+                approval.step_order
+            );
+
+            const role =
+              step?.requiredRole ?? step?.required_role ?? step?.role ?? "";
 
             return {
               ...approval,
-              approver_name: userData?.full_name ?? null,
-              approver_role: userData?.role ?? null,
+              approver_name: null,
+              approver_role: role,
             };
           })
         );
 
-        setApprovals(approvalsWithUsers);
+        setApprovals(enrichedApprovals);
         setLoading(false);
       } catch (err) {
-        console.error("Verification fetch error:", err);
+        console.error("Error fetching verification data:", err);
         setIsAvailable(false);
         setLoading(false);
       }
     };
 
-    fetchVerificationData();
+    fetchData();
   }, [params.id]);
 
   const formatDate = (dateString: string) => {
@@ -158,16 +176,23 @@ export default function PublicVerificationPage({
     return `${day}/${month}/${year} ${hours}:${minutes}`;
   };
 
+  const getCircleClass = (status: string) => {
+    if (status === "approved") {
+      return "bg-college-secondary text-white";
+    } else if (status === "rejected") {
+      return "bg-red-500 text-white";
+    } else {
+      return "border-2 border-gray-300 text-gray-400 bg-white";
+    }
+  };
+
   const getBadgeClass = (status: string) => {
-    switch (status) {
-      case "approved":
-        return "badge-approved";
-      case "rejected":
-        return "bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-semibold";
-      case "pending":
-        return "badge-pending";
-      default:
-        return "badge-draft";
+    if (status === "approved") {
+      return "badge-approved";
+    } else if (status === "rejected") {
+      return "bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-semibold";
+    } else {
+      return "badge-pending";
     }
   };
 
@@ -179,49 +204,52 @@ export default function PublicVerificationPage({
     );
   }
 
-  if (!isAvailable || !document) {
+  if (!isAvailable) {
     return (
-      <div className="min-h-screen bg-college-bg flex flex-col">
-        <div className="flex-1 flex items-center justify-center py-20">
-          <p className="text-gray-500 text-center font-poppins text-lg">
-            This document is not available for public verification.
-          </p>
-        </div>
-        <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
-          © MGM University SOET | EduSphere AI
-        </footer>
+      <div className="min-h-screen bg-college-bg flex flex-col items-center justify-center">
+        <p className="text-gray-500 py-20 text-center font-poppins">
+          This document is not available for public verification.
+        </p>
+        <p className="text-xs text-gray-400 text-center mt-4 font-poppins">
+          EduSphere AI — MGM University SOET
+        </p>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-college-bg">
-      <main className="max-w-5xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="page-heading">EduSphere AI — Document Verification</h1>
-          <p className="text-sm text-gray-500 font-poppins mt-1">
-            MGM University SOET
-          </p>
+      {/* Header */}
+      <header className="bg-college-accent text-white py-4 px-8">
+        <div className="max-w-5xl mx-auto flex justify-between items-center">
+          <h1 className="font-poppins font-bold text-xl">EduSphere AI</h1>
+          <p className="text-sm font-poppins">MGM University SOET</p>
         </div>
+      </header>
 
-        {/* Document Details Card */}
-        <div className="card mb-6">
-          <div className="flex justify-between flex-wrap gap-4 mb-4">
-            <h2 className="text-2xl font-bold text-college-accent font-poppins">
-              {document.title}
-            </h2>
-            <span className={getBadgeClass(document.status)}>
-              {document.status === "approved" ? "Approved" : "Rejected"}
+      {/* Main Content */}
+      <main className="max-w-3xl mx-auto px-6 py-8">
+        {/* Card 1: Document Details */}
+        <div className="card">
+          <div className="flex items-center gap-3 mb-2">
+            <span className={getBadgeClass(document?.status || "")}>
+              {document?.status}
+            </span>
+            <span className="text-xs text-gray-400 font-poppins">
+              Verified Document
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <h2 className="text-2xl font-bold text-college-accent font-poppins mt-2">
+            {document?.title}
+          </h2>
+
+          <div className="grid grid-cols-2 gap-3 mt-4">
             {/* Type */}
             <div className="bg-college-peach rounded-lg px-4 py-3">
               <p className="text-xs text-gray-500 font-poppins">Type</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
-                {document.type}
+                {document?.type}
               </p>
             </div>
 
@@ -229,7 +257,7 @@ export default function PublicVerificationPage({
             <div className="bg-college-peach rounded-lg px-4 py-3">
               <p className="text-xs text-gray-500 font-poppins">Department</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
-                {document.department}
+                {document?.department}
               </p>
             </div>
 
@@ -237,7 +265,7 @@ export default function PublicVerificationPage({
             <div className="bg-college-peach rounded-lg px-4 py-3">
               <p className="text-xs text-gray-500 font-poppins">Scope</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
-                {document.scope}
+                {document?.scope}
               </p>
             </div>
 
@@ -245,16 +273,15 @@ export default function PublicVerificationPage({
             <div className="bg-college-peach rounded-lg px-4 py-3">
               <p className="text-xs text-gray-500 font-poppins">Created On</p>
               <p className="text-sm font-semibold text-college-accent font-poppins">
-                {formatDate(document.created_at)}
+                {document?.created_at ? formatDate(document.created_at) : "N/A"}
               </p>
             </div>
           </div>
 
-          {/* View Document Button */}
-          {document.file_url && (
+          {viewableFileUrl && (
             <div className="mt-4">
               <a
-                href={document.file_url}
+                href={viewableFileUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-secondary"
@@ -265,63 +292,63 @@ export default function PublicVerificationPage({
           )}
         </div>
 
-        {/* Approval Chain Card */}
-        <div className="card mb-6">
-          <h2 className="section-heading mb-4">Approval Chain</h2>
-          
-          {approvals.length === 0 ? (
-            <p className="text-sm text-gray-500 font-poppins">
-              No approval records found.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {approvals.map((approval) => (
+        {/* Card 2: Approval Chain */}
+        <div className="card mt-6">
+          <h3 className="section-heading">Approval Chain</h3>
+
+          <div className="mt-4">
+            {approvals.map((approval, index) => (
+              <div
+                key={approval.id}
+                className="flex items-start gap-4 py-3 border-b border-college-peach"
+              >
+                {/* Step Number Circle */}
                 <div
-                  key={approval.id}
-                  className="border-b border-college-peach pb-4 last:border-b-0 last:pb-0"
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${getCircleClass(
+                    approval.status
+                  )}`}
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <p className="text-sm font-semibold text-college-accent font-poppins">
-                          Step {approval.step_order}
-                        </p>
-                        <span className={getBadgeClass(approval.status)}>
-                          {approval.status}
-                        </span>
-                      </div>
-                      
-                      <p className="text-sm text-gray-700 font-poppins">
-                        {approval.approver_name || "Unknown"}{" "}
-                        {approval.approver_role && (
-                          <span className="text-gray-500">
-                            ({approval.approver_role.toUpperCase()})
-                          </span>
-                        )}
-                      </p>
-
-                      {approval.acted_at && (
-                        <p className="text-xs text-gray-500 font-poppins mt-1">
-                          {formatDateTime(approval.acted_at)}
-                        </p>
-                      )}
-
-                      {approval.comment && (
-                        <p className="text-sm text-gray-600 font-poppins mt-2 italic">
-                          {approval.comment}
-                        </p>
-                      )}
-                    </div>
-                  </div>
+                  {approval.step_order}
                 </div>
-              ))}
-            </div>
-          )}
+
+                {/* Center Content */}
+                <div className="flex-1">
+                  <p className="font-semibold text-college-accent font-poppins text-sm">
+                    Step {approval.step_order} —{" "}
+                    {approval.approver_name || approval.approver_role || "Unknown"}
+                  </p>
+
+                  {approval.approver_role && (
+                    <p className="text-xs text-gray-500 font-poppins">
+                      {approval.approver_role}
+                    </p>
+                  )}
+
+                  {approval.acted_at && (
+                    <p className="text-xs text-gray-400 font-poppins">
+                      on {formatDateTime(approval.acted_at)}
+                    </p>
+                  )}
+
+                  {approval.comment && (
+                    <p className="italic text-xs text-gray-500 font-poppins mt-1">
+                      {approval.comment}
+                    </p>
+                  )}
+                </div>
+
+                {/* Right: Status Badge */}
+                <span className={getBadgeClass(approval.status)}>
+                  {approval.status}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
+      <footer className="text-center text-xs text-gray-400 py-8 font-poppins">
         This is an automated verification page generated by EduSphere AI.
         <br />
         Verify this document only through its official link.

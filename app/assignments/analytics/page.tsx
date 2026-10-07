@@ -325,6 +325,35 @@ export default function AssignmentAnalyticsPage() {
     fetchData();
   }, [router]);
 
+  const handleExportCSV = () => {
+    const rows = [
+      'Category,Label,Value',
+      `Overall,Overall Submission %,${overallSubmissionPercent.toFixed(1)}%`,
+      `Overall,Pending Submissions,${pendingSubmissions}`,
+      `Overall,Average Score %,${averageScorePercent.toFixed(1)}%`,
+      ...(avgTestsPassedPercent !== null ? [`Overall,Avg Tests Passed %,${avgTestsPassedPercent.toFixed(1)}%`] : []),
+      `Overall,Total Assignments,${totalAssignments}`,
+      '',
+      'Assignment Breakdown,Title,Section,Submitted,Total,Submission %,Avg Marks,Max Marks',
+      ...assignmentStats.map(stat => 
+        `Assignment,${stat.title},${stat.section},${stat.submitted},${stat.total},${stat.submissionPercent.toFixed(1)}%,${stat.averageMarks !== null ? stat.averageMarks.toFixed(1) : 'N/A'},${stat.maxMarks}`
+      ),
+      '',
+      'Student Performance,Email,Submitted,Graded,Average Score %',
+      ...studentStats.map(student =>
+        `Student,${student.email},${student.submittedCount},${student.gradedCount},${student.averageScore !== null ? student.averageScore.toFixed(1) + '%' : 'N/A'}`
+      )
+    ];
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'assignment-analytics-export.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-college-bg flex items-center justify-center">
@@ -384,12 +413,18 @@ export default function AssignmentAnalyticsPage() {
         </Link>
 
         {/* Page Header */}
-        <div className="mb-6">
+        <div className="flex items-center justify-between mb-2">
           <h1 className="page-heading">Assignment Analytics</h1>
-          <p className="text-sm text-gray-500 font-poppins">
-            Overview of submissions and student performance
-          </p>
+          <button
+            onClick={handleExportCSV}
+            className="btn-secondary text-sm"
+          >
+            Export CSV
+          </button>
         </div>
+        <p className="text-sm text-gray-500 font-poppins mb-4">
+          Overview of submissions and student performance
+        </p>
 
         {/* Stats Cards */}
         <div className={`grid grid-cols-1 md:grid-cols-${avgTestsPassedPercent !== null ? '5' : '4'} gap-4 mb-8`}>

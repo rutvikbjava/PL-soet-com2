@@ -99,6 +99,22 @@ export default function AnalyticsPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    const rows = [
+      'Category,Label,Count',
+      ...Object.entries(byStatus).map(([k, v]) => `Status,${k},${v}`),
+      ...Object.entries(byType).map(([k, v]) => `Type,${formatType(k)},${v}`)
+    ];
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'analytics-export.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-college-bg flex items-center justify-center">
@@ -131,7 +147,15 @@ export default function AnalyticsPage() {
 
       <main className="max-w-4xl mx-auto px-6 py-8">
         {/* Page Header */}
-        <h1 className="page-heading">Analytics</h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="page-heading">Analytics</h1>
+          <button
+            onClick={handleExportCSV}
+            className="btn-secondary text-sm"
+          >
+            Export CSV
+          </button>
+        </div>
         <p className="text-sm text-gray-500 font-poppins mb-6">
           Workflow statistics for MGM University SOET
         </p>

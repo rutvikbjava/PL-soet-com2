@@ -8,6 +8,7 @@ import { LANGUAGES } from "@/lib/languages";
 import Navbar from "@/components/Navbar";
 import { detectLinkType, isValidUrl } from "@/lib/link-detector";
 import { PROJECT_CATEGORIES } from "@/lib/project-categories";
+import { similarityPercent } from "@/lib/similarity";
 
 interface Assignment {
   id: string;
@@ -87,6 +88,12 @@ interface StudentWithSubmission {
   attemptCount: number;
 }
 
+interface SimilarityResult {
+  email: string;
+  highestPercent: number;
+  similarTo: string;
+}
+
 export default function AssignmentDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -99,6 +106,7 @@ export default function AssignmentDetailPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [studentsWithSubmissions, setStudentsWithSubmissions] = useState<StudentWithSubmission[]>([]);
+  const [similarities, setSimilarities] = useState<Map<string, SimilarityResult>>(new Map());
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [gradingMarks, setGradingMarks] = useState<number>(0);
   const [gradingFeedback, setGradingFeedback] = useState<string>("");
@@ -243,6 +251,58 @@ export default function AssignmentDetailPage() {
         });
 
         setStudentsWithSubmissions(studentsList);
+
+        // Calculate similarities for code assignments
+        if ((assignmentData as Assignment).type === "code" && allSubmissions.length > 0) {
+          // Fetch user data for all student IDs
+          const studentIds = allSubmissions
+            .map(sub => sub.student_email) // Using student_email as the identifier
+            .filter((email, index, self) => self.indexOf(email) === index);
+
+          // Calculate similarities
+          const similarityMap = new Map<string, SimilarityResult>();
+
+          studentsList.forEach((student) => {
+            const studentSub = student.latestSubmission;
+            if (!studentSub || !studentSub.code_text) return;
+
+            // Extract code_text to help TypeScript understand it's non-null
+            const studentCode = studentSub.code_text;
+
+            let highestPercent = 0;
+            let similarTo = "";
+
+            // Compare against all other students' latest submissions
+            studentsList.forEach((otherStudent) => {
+              if (otherStudent.email === student.email) return;
+
+              const otherSub = otherStudent.latestSubmission;
+              if (!otherSub || !otherSub.code_text) return;
+
+              const otherCode = otherSub.code_text;
+
+              const percent = similarityPercent(
+                studentCode,
+                otherCode
+              );
+
+              if (percent > highestPercent) {
+                highestPercent = percent;
+                similarTo = otherStudent.email;
+              }
+            });
+
+            if (highestPercent >= 60) {
+              similarityMap.set(student.email, {
+                email: student.email,
+                highestPercent,
+                similarTo,
+              });
+            }
+          });
+
+          setSimilarities(similarityMap);
+        }
       }
 
       setLoading(false);
@@ -1189,7 +1249,15 @@ export default function AssignmentDetailPage() {
                       <>
                         <tr key={student.email} className="table-row">
                           <td className="px-4 py-3 text-sm text-college-text font-poppins">
-                            {student.email}
+                            <div className="flex items-center flex-wrap">
+                              <span>{student.email}</span>
+                              {assignment.type === "code" && similarities.has(student.email) && (
+                                <span className="bg-yellow-100 text-yellow-800 text-xs font-semibold px-2 py-1 rounded-full ml-2">
+                                  ⚠ {similarities.get(student.email)!.highestPercent}% similar to{" "}
+                                  {similarities.get(student.email)!.similarTo}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600 font-poppins">
                             {sub ? (
