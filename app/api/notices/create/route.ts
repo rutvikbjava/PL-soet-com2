@@ -146,12 +146,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create workflow' }, { status: 500 });
     }
 
+    // Fetch users by required roles for approval steps
+    const requiredRoles = workflowSteps.map((step: any) => step.requiredRole ?? step.required_role);
+    const { data: approversData, error: approversError } = await supabase
+      .from('users')
+      .select('id, role')
+      .in('role', requiredRoles);
+
+    const approvers = (approversData ?? []) as any[];
+
+    if (approversError || approvers.length === 0) {
+      return NextResponse.json(
+        { error: 'No approvers found for the required roles' },
+        { status: 400 }
+      );
+    }
+
+    // Create a map of role to user ID (take first user for each role)
+    const roleToUserId = new Map<string, string>();
+    approvers.forEach((approver: any) => {
+      if (!roleToUserId.has(approver.role)) {
+        roleToUserId.set(approver.role, approver.id);
+      }
+    });
+
     // Insert approval rows for each step
-    const approvalRows = workflowSteps.map((step: any) => ({
-      workflow_id: workflow.id,
-      step_order: step.stepOrder ?? step.step_order ?? 1,
-      status: 'pending',
-    }));
+    const approvalRows = [];
+    for (const step of workflowSteps) {
+      const stepRole = (step as any).requiredRole ?? (step as any).required_role;
+      const approverId = roleToUserId.get(stepRole);
+      
+      if (!approverId) {
+        return NextResponse.json(
+          { error: `No approver found for role: ${stepRole}` },
+          { status: 400 }
+        );
+      }
+
+      approvalRows.push({
+        workflow_id: workflow.id,
+        approver_id: approverId,
+        step_order: (step as any).stepOrder ?? (step as any).step_order ?? 1,
+        status: 'pending',
+      });
+    }
 
     const { error: approvalsError } = await (supabase
       .from('approvals') as any)

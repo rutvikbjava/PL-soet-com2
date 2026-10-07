@@ -113,20 +113,25 @@ export async function POST(
     })
 
     // Create approval rows for each workflow step
-    const approvalData: ApprovalInsert[] = workflowSteps.map((step) => {
+    const approvalData: ApprovalInsert[] = []
+    
+    for (const step of workflowSteps) {
       const approverId = roleToUserId.get(step.requiredRole)
       
       if (!approverId) {
-        throw new Error(`No approver found for role: ${step.requiredRole}`)
+        return NextResponse.json(
+          { error: `No approver found for role: ${step.requiredRole}` },
+          { status: 400 }
+        )
       }
 
-      return {
+      approvalData.push({
         workflow_id: workflow.id,
         approver_id: approverId,
         step_order: step.stepOrder,
         status: 'pending',
-      }
-    })
+      })
+    }
 
     // Insert approval rows
     const { data: approvalsData, error: approvalsError } = await (supabase as any)

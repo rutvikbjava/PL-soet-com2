@@ -205,12 +205,32 @@ export async function POST(request: NextRequest) {
     })
 
     // Insert approval steps into database with approver_id assigned
-    const approvalRows = workflowSteps.map((step) => ({
-      workflow_id: workflow.id,
-      approver_id: roleToUserId.get(step.requiredRole) || null,
-      step_order: step.stepOrder,
-      status: 'pending',
-    }));
+    const approvalRows = []
+    for (const step of workflowSteps) {
+      const approverId = roleToUserId.get(step.requiredRole)
+      
+      if (!approverId) {
+        // Rollback
+        await supabase.from('workflows').delete().eq('id', workflow.id)
+        await supabase.from('documents').delete().eq('id', document.id)
+        if (fileUrl) {
+          const adminClient = createAdminClient()
+          await adminClient.storage.from('documents').remove([fileUrl])
+        }
+        
+        return NextResponse.json(
+          { error: `No approver found for role: ${step.requiredRole}` },
+          { status: 400 }
+        )
+      }
+
+      approvalRows.push({
+        workflow_id: workflow.id,
+        approver_id: approverId,
+        step_order: step.stepOrder,
+        status: 'pending',
+      })
+    }
 
     const { error: approvalError } = await (supabase
       .from('approvals') as any)
