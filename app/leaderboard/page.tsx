@@ -9,29 +9,15 @@ interface Assignment {
   id: string;
   title: string;
   type: string;
+  creator_id: string;
 }
 
 interface Submission {
   id: string;
   student_id: string;
-  tests_passed: number | null;
-  tests_total: number | null;
-  created_at: string;
-}
-
-interface User {
-  id: string;
-  full_name: string | null;
-  email: string;
-}
-
-interface LeaderboardEntry {
-  rank: number;
-  student_id: string;
-  name: string;
-  email: string;
   tests_passed: number;
   tests_total: number;
+  created_at: string;
   percent: number;
 }
 
@@ -39,12 +25,13 @@ export default function LeaderboardPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<string>("");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("");
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [userMap, setUserMap] = useState<Record<string, { email: string; full_name: string }>>({});
   const [loading, setLoading] = useState<boolean>(true);
-  const [loadingLeaderboard, setLoadingLeaderboard] = useState<boolean>(false);
+  const [selectedAssignmentTitle, setSelectedAssignmentTitle] = useState<string>("");
 
   useEffect(() => {
     const initializeUser = async () => {
@@ -59,139 +46,106 @@ export default function LeaderboardPage() {
         return;
       }
 
-      const email = session.user.email ?? "";
+      const currentUserId = session?.user?.id;
+      const email = session?.user?.email ?? "";
       setUserEmail(email);
+      setUserId(currentUserId ?? "");
 
-      // Get user id and role from users table
+      // Fetch user row
       const { data: userData } = await (supabase.from("users") as any)
-        .select("id, role")
-        .eq("email", email)
+        .select("id, email, full_name, role")
+        .eq("id", currentUserId)
         .single();
 
-      if (!userData) {
-        router.push("/login");
-        return;
-      }
+      setCurrentUserRole(userData?.role ?? "");
 
-      setUserId(userData.id);
-      setUserRole(userData.role);
+      // Fetch ALL code type assignments (not filtered by creator)
+      const { data: assignmentsData } = await (supabase.from("assignments") as any)
+        .select("id, title, type, creator_id")
+        .eq("type", "code");
 
-      // Fetch available assignments based on role
-      await fetchAssignments(userData.id, userData.role);
-
+      setAssignments(assignmentsData ?? []);
       setLoading(false);
     };
 
     initializeUser();
   }, [router]);
 
-  const fetchAssignments = async (currentUserId: string, role: string) => {
-    const supabase = createBrowserClient();
-
-    let query = (supabase.from("assignments") as any)
-      .select("id, title, type")
-      .eq("type", "code");
-
-    // Faculty only sees their own assignments
-    if (role === "faculty") {
-      query = query.eq("creator_id", currentUserId);
-    }
-
-    const { data } = await query;
-
-    setAssignments(data ?? []);
-  };
-
-  const fetchLeaderboard = async (assignmentId: string) => {
-    setLoadingLeaderboard(true);
-    const supabase = createBrowserClient();
-
-    // Fetch all submissions for the assignment
-    const { data: submissions } = await (supabase.from("submissions") as any)
-      .select("id, student_id, tests_passed, tests_total, created_at")
-      .eq("assignment_id", assignmentId)
-      .order("created_at", { ascending: false });
-
-    if (!submissions || submissions.length === 0) {
-      setLeaderboard([]);
-      setLoadingLeaderboard(false);
-      return;
-    }
-
-    // Get latest submission per student
-    const latestMap = new Map<string, Submission>();
-    submissions.forEach((s: Submission) => {
-      if (!latestMap.has(s.student_id)) {
-        latestMap.set(s.student_id, s);
+  useEffect(() => {
+    const fetchSubmissions = async () => {
+      if (!selectedAssignmentId) {
+        setSubmissions([]);
+        setUserMap({});
+        setSelectedAssignmentTitle("");
+        return;
       }
-    });
-    const latest = Array.from(latestMap.values());
 
-    // Fetch user names for all student_ids
-    const studentIds = latest.map((s) => s.student_id);
-    const { data: users } = await (supabase.from("users") as any)
-      .select("id, full_name, email")
-      .in("id", studentIds);
+      const supabase = createBrowserClient();
 
-    const usersMap = new Map<string, User>();
-    (users ?? []).forEach((u: User) => {
-      usersMap.set(u.id, u);
-    });
+      // Get selected assignment title
+      const selectedAssignment = assignments.find((a) => a.id === selectedAssignmentId);
+      setSelectedAssignmentTitle(selectedAssignment?.title ?? "");
 
-    // Compute percent and build leaderboard entries
-    const entries: LeaderboardEntry[] = latest.map((sub) => {
-      const user = usersMap.get(sub.student_id);
-      const testsTotal = sub.tests_total ?? 0;
-      const testsPassed = sub.tests_passed ?? 0;
-      const percent = testsTotal > 0 ? (testsPassed / testsTotal) * 100 : 0;
+      // Fetch submissions without any join
+      const { data: subs } = await (supabase.from("submissions") as any)
+        .select("id, student_id, tests_passed, tests_total, created_at")
+        .eq("assignment_id", selectedAssignmentId)
+        .order("created_at", { ascending: false });
 
-      return {
-        rank: 0, // Will be set after sorting
-        student_id: sub.student_id,
-        name: user?.full_name ?? "Unknown",
-        email: user?.email ?? "unknown@example.com",
-        tests_passed: testsPassed,
-        tests_total: testsTotal,
-        percent: Math.round(percent * 100) / 100,
-      };
-    });
+      if (!subs || subs.length === 0) {
+        setSubmissions([]);
+        setUserMap({});
+        return;
+      }
 
-    // Sort by percent descending
-    entries.sort((a, b) => b.percent - a.percent);
+      // Get latest submission per student_id
+      const latestMap = new Map<string, any>();
+      subs.forEach((s: any) => {
+        if (!latestMap.has(s.student_id)) {
+          latestMap.set(s.student_id, s);
+        }
+      });
+      const latest = Array.from(latestMap.values());
 
-    // Assign ranks
-    entries.forEach((entry, index) => {
-      entry.rank = index + 1;
-    });
+      // Fetch user info for all student_ids separately
+      const studentIds = latest.map((s: any) => s.student_id).filter(Boolean);
+      if (studentIds.length > 0) {
+        const { data: users } = await (supabase.from("users") as any)
+          .select("id, email, full_name")
+          .in("id", studentIds);
 
-    setLeaderboard(entries);
-    setLoadingLeaderboard(false);
-  };
+        const map: Record<string, any> = {};
+        users?.forEach((u: any) => {
+          map[u.id] = u;
+        });
+        setUserMap(map);
+      }
+
+      // Compute score for each
+      const scored = latest.map((s: any) => ({
+        ...s,
+        percent: s.tests_total > 0 ? Math.round((s.tests_passed / s.tests_total) * 100) : 0,
+      }));
+
+      // Sort by percent descending
+      scored.sort((a: any, b: any) => b.percent - a.percent);
+
+      setSubmissions(scored);
+    };
+
+    fetchSubmissions();
+  }, [selectedAssignmentId, assignments]);
 
   const handleAssignmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const assignmentId = e.target.value;
-    setSelectedAssignmentId(assignmentId);
-
-    if (assignmentId) {
-      fetchLeaderboard(assignmentId);
-    } else {
-      setLeaderboard([]);
-    }
-  };
-
-  const getMedalEmoji = (rank: number): string => {
-    if (rank === 1) return "🥇 ";
-    if (rank === 2) return "🥈 ";
-    if (rank === 3) return "🥉 ";
-    return "";
+    setSelectedAssignmentId(e.target.value);
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-college-bg">
-        <Navbar userEmail={userEmail} userRole={userRole} />
-        <main className="p-8">
-          <div className="text-center text-gray-400">Loading...</div>
+        <Navbar userEmail={userEmail} userRole={currentUserRole} />
+        <main className="max-w-4xl mx-auto px-6 py-8">
+          <div className="text-center text-college-secondary">Loading...</div>
         </main>
       </div>
     );
@@ -199,52 +153,46 @@ export default function LeaderboardPage() {
 
   return (
     <div className="min-h-screen bg-college-bg">
-      <Navbar userEmail={userEmail} userRole={userRole} />
+      <Navbar userEmail={userEmail} userRole={currentUserRole} />
 
-      <main className="p-8">
-        <h1 className="page-heading mb-6">🏆 Leaderboard</h1>
+      <main className="max-w-4xl mx-auto px-6 py-8">
+        <h1 className="page-heading">🏆 Leaderboard</h1>
+        <p className="text-sm text-gray-500 font-poppins mb-6">Code assignment rankings</p>
 
-        <div className="card mb-6">
-          <h2 className="section-heading">Select Assignment</h2>
+        {/* Assignment Selector */}
+        <select
+          value={selectedAssignmentId}
+          onChange={handleAssignmentChange}
+          className="input-field max-w-md mb-6"
+        >
+          <option value="">Select an assignment</option>
+          {assignments.map((assignment) => (
+            <option key={assignment.id} value={assignment.id}>
+              {assignment.title}
+            </option>
+          ))}
+        </select>
 
-          <select
-            value={selectedAssignmentId}
-            onChange={handleAssignmentChange}
-            className="input-field max-w-md"
-          >
-            <option value="">Select an assignment</option>
-            {assignments.map((assignment) => (
-              <option key={assignment.id} value={assignment.id}>
-                {assignment.title}
-              </option>
-            ))}
-          </select>
-        </div>
-
+        {/* No Selection */}
         {!selectedAssignmentId && (
-          <div className="text-sm text-gray-400 py-8 text-center">
-            Select an assignment to see the leaderboard.
+          <div className="card text-center py-12">
+            <p className="text-sm text-gray-400">Select an assignment to see the leaderboard.</p>
           </div>
         )}
 
-        {selectedAssignmentId && loadingLeaderboard && (
-          <div className="text-sm text-gray-400 py-8 text-center">
-            Loading leaderboard...
+        {/* No Submissions Yet */}
+        {selectedAssignmentId && submissions.length === 0 && (
+          <div className="card text-center py-4">
+            <p className="text-sm text-gray-400">No submissions for this assignment yet.</p>
           </div>
         )}
 
-        {selectedAssignmentId &&
-          !loadingLeaderboard &&
-          leaderboard.length === 0 && (
-            <div className="text-sm text-gray-400 py-4 text-center">
-              No submissions for this assignment yet.
-            </div>
-          )}
+        {/* Has Submissions */}
+        {selectedAssignmentId && submissions.length > 0 && (
+          <div className="card">
+            <h2 className="section-heading">{selectedAssignmentTitle}</h2>
 
-        {selectedAssignmentId &&
-          !loadingLeaderboard &&
-          leaderboard.length > 0 && (
-            <div className="card overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead>
                   <tr>
@@ -256,38 +204,44 @@ export default function LeaderboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {leaderboard.map((entry) => {
-                    const isCurrentUser =
-                      userRole === "student" && entry.student_id === userId;
+                  {submissions.map((s, i) => {
+                    const isCurrentUser = s.student_id === userId;
                     const rowClass = isCurrentUser
                       ? "table-row bg-college-peach font-semibold"
                       : "table-row";
 
+                    let rankDisplay: string;
+                    if (i === 0) {
+                      rankDisplay = "🥇 1";
+                    } else if (i === 1) {
+                      rankDisplay = "🥈 2";
+                    } else if (i === 2) {
+                      rankDisplay = "🥉 3";
+                    } else {
+                      rankDisplay = (i + 1).toString();
+                    }
+
                     return (
-                      <tr key={entry.student_id} className={rowClass}>
+                      <tr key={s.id} className={rowClass}>
+                        <td className="px-4 py-3 text-sm text-college-text">{rankDisplay}</td>
                         <td className="px-4 py-3 text-sm text-college-text">
-                          {getMedalEmoji(entry.rank)}
-                          {entry.rank}
+                          {userMap[s.student_id]?.full_name ?? "Unknown"}
                         </td>
                         <td className="px-4 py-3 text-sm text-college-text">
-                          {entry.name}
+                          {userMap[s.student_id]?.email ?? s.student_id}
                         </td>
                         <td className="px-4 py-3 text-sm text-college-text">
-                          {entry.email}
+                          {s.tests_passed}/{s.tests_total}
                         </td>
-                        <td className="px-4 py-3 text-sm text-college-text">
-                          {entry.tests_passed} / {entry.tests_total}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-college-text">
-                          {entry.percent.toFixed(2)}%
-                        </td>
+                        <td className="px-4 py-3 text-sm text-college-text">{s.percent}%</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          )}
+          </div>
+        )}
       </main>
     </div>
   );

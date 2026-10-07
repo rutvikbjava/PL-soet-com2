@@ -69,16 +69,15 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
 
   // Debounced search
   useEffect(() => {
-    const timeoutId = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       if (searchQuery.length >= 2) {
         try {
-          const response = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
-          const data = await response.json();
+          const res = await fetch('/api/search?q=' + encodeURIComponent(searchQuery));
+          const data = await res.json();
           setResults(data);
           setShowDropdown(true);
-        } catch (error) {
-          console.error("Search error:", error);
-          setResults({ documents: [], assignments: [] });
+        } catch {
+          setShowDropdown(false);
         }
       } else {
         setShowDropdown(false);
@@ -86,7 +85,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
       }
     }, 300);
 
-    return () => clearTimeout(timeoutId);
+    return () => clearTimeout(timer);
   }, [searchQuery]);
 
   // Close dropdown on click outside
@@ -182,18 +181,28 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
       {/* Center - Search box and navigation links */}
       <div className="flex-1 flex items-center gap-4 overflow-hidden">
         {/* Search Input */}
-        <div ref={searchRef} className="max-w-xs w-full relative">
+        <div ref={searchRef} className="relative max-w-xs w-full">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setShowDropdown(false);
+                setSearchQuery('');
+              }
+            }}
             placeholder="Search documents, assignments..."
-            className="w-full px-3 py-1.5 text-sm border-2 border-college-peach rounded-lg font-poppins focus:outline-none focus:border-college-secondary"
+            className="input-field text-sm py-1.5"
+            autoComplete="off"
           />
 
           {/* Search Dropdown */}
           {showDropdown && (
-            <div className="absolute z-50 w-full mt-1 bg-white border border-college-peach rounded-lg shadow-lg max-h-72 overflow-y-auto">
+            <div
+              style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50 }}
+              className="mt-1 bg-white border border-college-peach rounded-lg shadow-lg max-h-72 overflow-y-auto"
+            >
               {results.documents && results.documents.length > 0 && (
                 <div>
                   <div className="text-xs text-gray-400 px-3 pt-2 font-poppins">
