@@ -151,7 +151,8 @@ export async function POST(request: NextRequest) {
     const { data: approversData, error: approversError } = await supabase
       .from('users')
       .select('id, role')
-      .in('role', requiredRoles);
+      .in('role', requiredRoles)
+      .or('status.is.null,status.eq.active');
 
     const approvers = (approversData ?? []) as any[];
 

@@ -31,13 +31,36 @@ export default function LoginPage() {
         return;
       }
 
-      // Fetch user role by email
+      // Fetch user role and status by email
       const { data: userData } = await (supabase.from("users") as any)
-        .select("role")
+        .select("role, status")
         .eq("email", email)
         .single();
 
       const role = (userData as any)?.role || null;
+      const status = (userData as any)?.status || "active";
+
+      // Check account status
+      if (status === "pending") {
+        await supabase.auth.signOut();
+        setError("Your account is waiting for approval.");
+        setLoading(false);
+        return;
+      }
+
+      if (status === "rejected") {
+        await supabase.auth.signOut();
+        setError("Your account request was rejected.");
+        setLoading(false);
+        return;
+      }
+
+      if (status === "suspended") {
+        await supabase.auth.signOut();
+        setError("Your account is suspended. Contact the administrator.");
+        setLoading(false);
+        return;
+      }
 
       // Redirect based on role
       if (role === "student") {

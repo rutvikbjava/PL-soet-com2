@@ -94,6 +94,7 @@ export async function POST(
       .from('users')
       .select('id, role')
       .in('role', requiredRoles)
+      .or('status.is.null,status.eq.active')
 
     const approvers = (approversData ?? []) as any[]
 

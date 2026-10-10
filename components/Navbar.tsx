@@ -93,6 +93,32 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
     fetchNotificationCount();
   }, [userEmail]);
 
+  useEffect(() => {
+    const checkUserStatus = async () => {
+      if (!userEmail) return;
+
+      try {
+        const supabase = createBrowserClient();
+        const { data: userData } = await (supabase.from("users") as any)
+          .select("status")
+          .eq("email", userEmail)
+          .single();
+
+        const status = (userData as any)?.status || "active";
+
+        // If status is not active (and not null/undefined), sign out
+        if (status !== "active" && userData?.status) {
+          await supabase.auth.signOut();
+          router.replace("/login");
+        }
+      } catch (error) {
+        console.error("Error checking user status:", error);
+      }
+    };
+
+    checkUserStatus();
+  }, [userEmail, router]);
+
   // Debounced search
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -470,6 +496,16 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             This Week
           </Link>
 
+          {/* Users (for faculty, hod, coe, principal, admin) */}
+          {(userRole === "faculty" || userRole === "hod" || userRole === "coe" || userRole === "principal" || userRole === "admin") && (
+            <Link
+              href="/users"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+            >
+              Users
+            </Link>
+          )}
+
         </div>
       </div>
     </div>
@@ -487,9 +523,12 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             </span>
           )}
         </Link>
-        <span className="text-xs text-gray-500 font-poppins hidden xl:inline truncate max-w-[150px]">
+        <Link
+          href="/profile"
+          className="text-xs text-gray-500 font-poppins hidden xl:inline truncate max-w-[150px] hover:text-college-secondary transition-colors"
+        >
           {userEmail}
-        </span>
+        </Link>
         <button onClick={handleLogout} className="btn-danger whitespace-nowrap">
           Logout
         </button>
