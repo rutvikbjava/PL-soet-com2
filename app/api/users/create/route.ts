@@ -3,14 +3,24 @@ import { createAdminClient } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
 
+export async function GET() {
+  return NextResponse.json({
+    hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL
+  });
+}
+
 export async function POST(request: NextRequest) {
+  let step = 'start';
   try {
+    step = 'env';
     const admin = createAdminClient();
 
+    step = 'auth-caller';
     // Get Authorization header
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
+      return NextResponse.json({ error: '[auth-caller] Not authorized' }, { status: 401 });
     }
 
     const token = authHeader.substring(7);
@@ -18,14 +28,15 @@ export async function POST(request: NextRequest) {
     // Get caller from token
     const { data: authData, error: authError } = await admin.auth.getUser(token);
     if (authError || !authData.user) {
-      return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
+      return NextResponse.json({ error: '[auth-caller] Not authorized' }, { status: 401 });
     }
 
     const callerEmail = authData.user.email;
     if (!callerEmail) {
-      return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
+      return NextResponse.json({ error: '[auth-caller] Not authorized' }, { status: 401 });
     }
 
+    step = 'load-caller';
     // Load caller's row from users
     const { data: caller, error: callerError } = await (admin.from('users') as any)
       .select('email, role, department, status')
@@ -33,15 +44,16 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (callerError || !caller) {
-      return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
+      return NextResponse.json({ error: '[load-caller] Not authorized' }, { status: 401 });
     }
 
     // Check caller status (null counts as active)
     const callerStatus = caller.status || 'active';
     if (callerStatus !== 'active') {
-      return NextResponse.json({ error: 'Not authorized' }, { status: 401 });
+      return NextResponse.json({ error: '[load-caller] Not authorized' }, { status: 401 });
     }
 
+    step = 'checks';
     // Parse request body
     const body = await request.json();
     const {
@@ -58,14 +70,14 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!email || !full_name || !role) {
       return NextResponse.json(
-        { error: 'Missing required fields: email, full_name, role' },
+        { error: '[checks] Missing required fields: email, full_name, role' },
         { status: 400 }
       );
     }
 
     if (!password || password.length < 6) {
       return NextResponse.json(
-        { error: 'Password must be at least 6 characters' },
+        { error: '[checks] Password must be at least 6 characters' },
         { status: 400 }
       );
     }
@@ -77,7 +89,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (existingUser) {
-      return NextResponse.json({ error: 'User already exists' }, { status: 400 });
+      return NextResponse.json({ error: '[checks] User already exists' }, { status: 400 });
     }
 
     // Determine creation rights and set status/approval_stage
@@ -88,7 +100,7 @@ export async function POST(request: NextRequest) {
 
     switch (caller.role) {
       case 'student':
-        return NextResponse.json({ error: 'You cannot create users' }, { status: 403 });
+        return NextResponse.json({ error: '[checks] You cannot create users' }, { status: 403 });
 
       case 'faculty':
         if (role === 'student') {
@@ -100,7 +112,7 @@ export async function POST(request: NextRequest) {
           // Section is required for students
           if (!section) {
             return NextResponse.json(
-              { error: 'Section is required for students' },
+              { error: '[checks] Section is required for students' },
               { status: 400 }
             );
           }
@@ -141,11 +153,12 @@ export async function POST(request: NextRequest) {
 
     if (!canCreate) {
       return NextResponse.json(
-        { error: 'You cannot create this role' },
+        { error: '[checks] You cannot create this role' },
         { status: 403 }
       );
     }
 
+    step = 'create-auth-user';
     // Create auth user
     const { data: authUser, error: authUserError } = await admin.auth.admin.createUser({
       email,
@@ -155,11 +168,12 @@ export async function POST(request: NextRequest) {
 
     if (authUserError || !authUser.user) {
       return NextResponse.json(
-        { error: authUserError?.message || 'Failed to create user' },
+        { error: `[create-auth-user] ${authUserError?.message || 'Failed to create user'}` },
         { status: 400 }
       );
     }
 
+    step = 'insert-users';
     // Insert into users table
     const { data: newUser, error: insertError } = await (admin.from('users') as any)
       .insert({
@@ -182,11 +196,12 @@ export async function POST(request: NextRequest) {
       // Rollback: delete auth user
       await admin.auth.admin.deleteUser(authUser.user.id);
       return NextResponse.json(
-        { error: 'Failed to create user record' },
+        { error: '[insert-users] Failed to create user record' },
         { status: 500 }
       );
     }
 
+    step = 'insert-log';
     // Insert approval log
     await (admin.from('user_approval_log') as any).insert({
       user_email: email,
@@ -197,6 +212,7 @@ export async function POST(request: NextRequest) {
       actor_role: caller.role
     });
 
+    step = 'notify';
     // Send notifications based on approval_stage
     if (approval_stage === 'hod') {
       // Notify all active HODs in the same department
@@ -241,10 +257,11 @@ export async function POST(request: NextRequest) {
       approval_stage
     });
 
-  } catch (error) {
-    console.error('User creation error:', error);
+  } catch (err) {
+    console.error('create-user failed at', step, err);
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { error: `[${step}] ${message}` },
       { status: 500 }
     );
   }
