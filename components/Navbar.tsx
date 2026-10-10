@@ -34,7 +34,14 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
     assignments: [],
   });
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [showDocumentsMenu, setShowDocumentsMenu] = useState<boolean>(false);
+  const [showAssignmentsMenu, setShowAssignmentsMenu] = useState<boolean>(false);
+  const [showAnalyticsMenu, setShowAnalyticsMenu] = useState<boolean>(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const documentsMenuRef = useRef<HTMLDivElement>(null);
+  const assignmentsMenuRef = useRef<HTMLDivElement>(null);
+  const analyticsMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchNotificationCount = async () => {
@@ -61,13 +68,23 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (searchQuery.length >= 2) {
+        setIsSearching(true);
         try {
           const res = await fetch('/api/search?q=' + encodeURIComponent(searchQuery));
+          if (!res.ok) {
+            console.error('Search failed with status:', res.status);
+            const errorText = await res.text();
+            console.error('Error response:', errorText);
+          }
           const data = await res.json();
+          console.log('Search results:', data);
           setResults(data);
           setShowDropdown(true);
-        } catch {
+        } catch (error) {
+          console.error('Search error:', error);
           setShowDropdown(false);
+        } finally {
+          setIsSearching(false);
         }
       } else {
         setShowDropdown(false);
@@ -84,11 +101,23 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setShowDropdown(false);
       }
+      if (documentsMenuRef.current && !documentsMenuRef.current.contains(event.target as Node)) {
+        setShowDocumentsMenu(false);
+      }
+      if (assignmentsMenuRef.current && !assignmentsMenuRef.current.contains(event.target as Node)) {
+        setShowAssignmentsMenu(false);
+      }
+      if (analyticsMenuRef.current && !analyticsMenuRef.current.contains(event.target as Node)) {
+        setShowAnalyticsMenu(false);
+      }
     };
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setShowDropdown(false);
+        setShowDocumentsMenu(false);
+        setShowAssignmentsMenu(false);
+        setShowAnalyticsMenu(false);
       }
     };
 
@@ -171,9 +200,14 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
               }
             }}
             placeholder="Search documents, assignments..."
-            className="input-field text-sm py-1.5"
+            className="input-field text-sm py-1.5 w-full pr-8"
             autoComplete="off"
           />
+          {isSearching && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="w-4 h-4 border-2 border-college-secondary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          )}
 
           {/* Search Dropdown */}
           {showDropdown && (
@@ -241,6 +275,8 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
         {/* Navigation links with horizontal scroll */}
         <div className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-college-peach scrollbar-track-transparent hover:scrollbar-thumb-college-secondary">
           <div className="flex items-center gap-4 lg:gap-6 min-w-max px-2">
+          
+          {/* Dashboard (for non-students) */}
           {!isStudent && (
             <Link
               href="/dashboard"
@@ -249,6 +285,53 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
               Dashboard
             </Link>
           )}
+
+          {/* Documents Dropdown (for non-students) */}
+          {!isStudent && (
+            <div ref={documentsMenuRef} className="relative">
+              <button
+                onClick={() => setShowDocumentsMenu(!showDocumentsMenu)}
+                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap flex items-center gap-1"
+              >
+                Documents
+                <span className="text-xs">▼</span>
+              </button>
+              {showDocumentsMenu && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-50">
+                  <Link
+                    href="/upload"
+                    onClick={() => setShowDocumentsMenu(false)}
+                    className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                  >
+                    Upload Document
+                  </Link>
+                  <Link
+                    href="/notices/create"
+                    onClick={() => setShowDocumentsMenu(false)}
+                    className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                  >
+                    Create Notice
+                  </Link>
+                  <Link
+                    href="/notice-board"
+                    onClick={() => setShowDocumentsMenu(false)}
+                    className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                  >
+                    Notice Board
+                  </Link>
+                  <Link
+                    href="/audit"
+                    onClick={() => setShowDocumentsMenu(false)}
+                    className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                  >
+                    Audit Trail
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* My Approvals (for approver roles) */}
           {(userRole === "hod" || userRole === "coe" || userRole === "principal") && (
             <Link
               href="/my-approvals"
@@ -257,72 +340,93 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
               My Approvals
             </Link>
           )}
-          <Link
-            href="/assignments"
-            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-          >
-            Assignments
-          </Link>
-          <Link
-            href="/deadlines"
-            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-          >
-            Deadlines
-          </Link>
-          <Link
-            href="/leaderboard"
-            className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-          >
-            Leaderboard
-          </Link>
+
+          {/* Assignments Dropdown */}
+          <div ref={assignmentsMenuRef} className="relative">
+            <button
+              onClick={() => setShowAssignmentsMenu(!showAssignmentsMenu)}
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap flex items-center gap-1"
+            >
+              Assignments
+              <span className="text-xs">▼</span>
+            </button>
+            {showAssignmentsMenu && (
+              <div className="absolute top-full left-0 mt-1 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-50">
+                <Link
+                  href="/assignments"
+                  onClick={() => setShowAssignmentsMenu(false)}
+                  className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                >
+                  All Assignments
+                </Link>
+                <Link
+                  href="/deadlines"
+                  onClick={() => setShowAssignmentsMenu(false)}
+                  className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                >
+                  Deadlines
+                </Link>
+                <Link
+                  href="/leaderboard"
+                  onClick={() => setShowAssignmentsMenu(false)}
+                  className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                >
+                  Leaderboard
+                </Link>
+                {userRole === "faculty" && (
+                  <Link
+                    href="/assignments/analytics"
+                    onClick={() => setShowAssignmentsMenu(false)}
+                    className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                  >
+                    Assignment Analytics
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Analytics Dropdown (for non-students) */}
+          {!isStudent && (
+            <div ref={analyticsMenuRef} className="relative">
+              <button
+                onClick={() => setShowAnalyticsMenu(!showAnalyticsMenu)}
+                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap flex items-center gap-1"
+              >
+                Analytics
+                <span className="text-xs">▼</span>
+              </button>
+              {showAnalyticsMenu && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-50">
+                  <Link
+                    href="/analytics"
+                    onClick={() => setShowAnalyticsMenu(false)}
+                    className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                  >
+                    Document Analytics
+                  </Link>
+                  {userRole === "faculty" && (
+                    <Link
+                      href="/assignments/analytics"
+                      onClick={() => setShowAnalyticsMenu(false)}
+                      className="block px-4 py-2 text-sm text-college-text hover:bg-college-bg font-poppins"
+                    >
+                      Assignment Analytics
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* This Week */}
           <Link
             href="/digest"
             className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
           >
             This Week
           </Link>
-          {!isStudent && (
-            <>
-              <Link
-                href="/upload"
-                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-              >
-                Upload Document
-              </Link>
-              <Link
-                href="/notices/create"
-                className="bg-college-secondary text-white px-3 py-1 rounded-full text-sm font-poppins font-medium hover:bg-college-secondary-dark transition-colors whitespace-nowrap"
-              >
-                Create Notice
-              </Link>
-              <Link
-                href="/audit"
-                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-              >
-                Audit Trail
-              </Link>
-              <Link
-                href="/analytics"
-                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-              >
-                Analytics
-              </Link>
-              <Link
-                href="/notice-board"
-                className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-              >
-                Notice Board
-              </Link>
-            </>
-          )}
-          {userRole === "faculty" && (
-            <Link
-              href="/assignments/analytics"
-              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
-            >
-              Assignment Analytics
-            </Link>
-          )}
+
         </div>
       </div>
     </div>

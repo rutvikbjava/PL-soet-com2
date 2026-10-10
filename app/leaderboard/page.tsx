@@ -9,15 +9,15 @@ interface Assignment {
   id: string;
   title: string;
   type: string;
-  creator_id: string;
+  created_by_email: string;
 }
 
 interface Submission {
   id: string;
-  student_id: string;
+  student_email: string;
   tests_passed: number;
   tests_total: number;
-  created_at: string;
+  submitted_at: string;
   percent: number;
 }
 
@@ -59,9 +59,9 @@ export default function LeaderboardPage() {
 
       setCurrentUserRole(userData?.role ?? "");
 
-      // Fetch ALL code type assignments (not filtered by creator)
+      // Fetch ALL code type assignments (using created_by_email not creator_id)
       const { data: allAssignments } = await (supabase.from("assignments") as any)
-        .select("id, title, type, creator_id");
+        .select("id, title, type, created_by_email");
 
       const codeAssignments = (allAssignments ?? []).filter(
         (a: any) => a.type === "code"
@@ -89,11 +89,11 @@ export default function LeaderboardPage() {
       const selectedAssignment = assignments.find((a) => a.id === selectedAssignmentId);
       setSelectedAssignmentTitle(selectedAssignment?.title ?? "");
 
-      // Fetch submissions without any join
+      // Fetch submissions using student_email not student_id
       const { data: subs } = await (supabase.from("submissions") as any)
-        .select("id, student_id, tests_passed, tests_total, created_at")
+        .select("id, student_email, tests_passed, tests_total, submitted_at")
         .eq("assignment_id", selectedAssignmentId)
-        .order("created_at", { ascending: false });
+        .order("submitted_at", { ascending: false });
 
       if (!subs || subs.length === 0) {
         setSubmissions([]);
@@ -101,25 +101,25 @@ export default function LeaderboardPage() {
         return;
       }
 
-      // Get latest submission per student_id
+      // Get latest submission per student_email
       const latestMap = new Map<string, any>();
       subs.forEach((s: any) => {
-        if (!latestMap.has(s.student_id)) {
-          latestMap.set(s.student_id, s);
+        if (!latestMap.has(s.student_email)) {
+          latestMap.set(s.student_email, s);
         }
       });
       const latest = Array.from(latestMap.values());
 
-      // Fetch user info for all student_ids separately
-      const studentIds = latest.map((s: any) => s.student_id).filter(Boolean);
-      if (studentIds.length > 0) {
+      // Fetch user info for all student emails
+      const studentEmails = latest.map((s: any) => s.student_email).filter(Boolean);
+      if (studentEmails.length > 0) {
         const { data: users } = await (supabase.from("users") as any)
           .select("id, email, full_name")
-          .in("id", studentIds);
+          .in("email", studentEmails);
 
         const map: Record<string, any> = {};
         users?.forEach((u: any) => {
-          map[u.id] = u;
+          map[u.email] = u;
         });
         setUserMap(map);
       }
@@ -208,7 +208,7 @@ export default function LeaderboardPage() {
                 </thead>
                 <tbody>
                   {submissions.map((s, i) => {
-                    const isCurrentUser = s.student_id === userId;
+                    const isCurrentUser = s.student_email === userEmail;
                     const rowClass = isCurrentUser
                       ? "table-row bg-college-peach font-semibold"
                       : "table-row";
@@ -228,10 +228,10 @@ export default function LeaderboardPage() {
                       <tr key={s.id} className={rowClass}>
                         <td className="px-4 py-3 text-sm text-college-text">{rankDisplay}</td>
                         <td className="px-4 py-3 text-sm text-college-text">
-                          {userMap[s.student_id]?.full_name ?? "Unknown"}
+                          {userMap[s.student_email]?.full_name ?? "Unknown"}
                         </td>
                         <td className="px-4 py-3 text-sm text-college-text">
-                          {userMap[s.student_id]?.email ?? s.student_id}
+                          {s.student_email}
                         </td>
                         <td className="px-4 py-3 text-sm text-college-text">
                           {s.tests_passed}/{s.tests_total}
