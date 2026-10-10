@@ -15,6 +15,59 @@
     font-family: 'Poppins', sans-serif;
     color: #703C19;
   }
+
+  .dark body {
+    @apply bg-gray-900 text-gray-100;
+  }
+
+  .dark .card {
+    @apply bg-gray-800 border-gray-700;
+  }
+
+  .dark .page-heading {
+    @apply text-orange-300;
+  }
+
+  .dark .section-heading {
+    @apply text-orange-300 border-gray-700;
+  }
+
+  .dark .input-field {
+    @apply bg-gray-800 border-gray-600 text-gray-100;
+  }
+
+  .dark .table-header {
+    @apply bg-gray-700;
+  }
+
+  .dark .table-row {
+    @apply border-gray-700 hover:bg-gray-800;
+  }
+
+  .dark h1, .dark h2, .dark h3, 
+  .dark h4, .dark h5, .dark h6 {
+    @apply text-orange-300;
+  }
+
+  .dark .bg-college-bg {
+    background-color: #1a1a1a;
+  }
+
+  .dark .bg-white {
+    @apply bg-gray-800;
+  }
+
+  .dark .text-college-text {
+    @apply text-gray-200;
+  }
+
+  .dark .text-gray-500 {
+    @apply text-gray-400;
+  }
+
+  .dark .bg-college-peach {
+    background-color: #2d2420;
+  }
 }
 
 @layer components {

@@ -60,11 +60,14 @@ export default function LeaderboardPage() {
       setCurrentUserRole(userData?.role ?? "");
 
       // Fetch ALL code type assignments (not filtered by creator)
-      const { data: assignmentsData } = await (supabase.from("assignments") as any)
-        .select("id, title, type, creator_id")
-        .eq("type", "code");
+      const { data: allAssignments } = await (supabase.from("assignments") as any)
+        .select("id, title, type, creator_id");
 
-      setAssignments(assignmentsData ?? []);
+      const codeAssignments = (allAssignments ?? []).filter(
+        (a: any) => a.type === "code"
+      );
+
+      setAssignments(codeAssignments);
       setLoading(false);
     };
 

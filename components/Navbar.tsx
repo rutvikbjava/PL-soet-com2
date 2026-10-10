@@ -34,17 +34,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
     assignments: [],
   });
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
-  const [isDark, setIsDark] = useState<boolean>(false);
   const searchRef = useRef<HTMLDivElement>(null);
-
-  // Initialize dark mode from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('edusphere-theme');
-    if (saved === 'dark') {
-      document.documentElement.classList.add('dark');
-      setIsDark(true);
-    }
-  }, []);
 
   useEffect(() => {
     const fetchNotificationCount = async () => {
@@ -126,18 +116,6 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
     setSearchQuery("");
     setShowDropdown(false);
     router.push(path);
-  };
-
-  const toggleDarkMode = () => {
-    if (isDark) {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('edusphere-theme', 'light');
-      setIsDark(false);
-    } else {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('edusphere-theme', 'dark');
-      setIsDark(true);
-    }
   };
 
   const getBadgeClass = (status: string) => {
@@ -365,13 +343,6 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
         <span className="text-xs text-gray-500 font-poppins hidden xl:inline truncate max-w-[150px]">
           {userEmail}
         </span>
-        <button
-          onClick={toggleDarkMode}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          className="w-9 h-9 rounded-full border border-college-peach flex items-center justify-center text-base hover:bg-college-peach transition-colors"
-        >
-          {isDark ? '☀️' : '🌙'}
-        </button>
         <button onClick={handleLogout} className="btn-danger whitespace-nowrap">
           Logout
         </button>
