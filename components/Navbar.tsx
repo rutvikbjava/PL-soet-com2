@@ -44,6 +44,33 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
   const assignmentsMenuRef = useRef<HTMLDivElement>(null);
   const analyticsMenuRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
+  const collapseTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleNavMouseEnter = () => {
+    // Cancel any pending collapse timer
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+    setIsNavExpanded(true);
+  };
+
+  const handleNavMouseLeave = () => {
+    // Start 15-second timer to collapse
+    collapseTimerRef.current = setTimeout(() => {
+      setIsNavExpanded(false);
+      collapseTimerRef.current = null;
+    }, 15000);
+  };
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (collapseTimerRef.current) {
+        clearTimeout(collapseTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const fetchNotificationCount = async () => {
@@ -173,8 +200,8 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
   return (
     <nav 
       ref={navRef}
-      onMouseEnter={() => setIsNavExpanded(true)}
-      onMouseLeave={() => setIsNavExpanded(false)}
+      onMouseEnter={handleNavMouseEnter}
+      onMouseLeave={handleNavMouseLeave}
       className={`bg-white border-b border-college-peach shadow-sm px-4 sm:px-8 flex items-center gap-4 relative overflow-visible transition-all duration-300 ease-in-out ${
         isNavExpanded ? 'h-auto py-4' : 'h-[70px]'
       }`}
