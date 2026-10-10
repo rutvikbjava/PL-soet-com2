@@ -75,11 +75,15 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             console.error('Search failed with status:', res.status);
             const errorText = await res.text();
             console.error('Error response:', errorText);
+            setShowDropdown(false);
+          } else {
+            const data = await res.json();
+            console.log('Search results:', data);
+            setResults(data);
+            // Always show dropdown if we have query >= 2 chars
+            setShowDropdown(true);
+            console.log('Dropdown should be visible:', true);
           }
-          const data = await res.json();
-          console.log('Search results:', data);
-          setResults(data);
-          setShowDropdown(true);
         } catch (error) {
           console.error('Search error:', error);
           setShowDropdown(false);
@@ -165,7 +169,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
   const isStudent = userRole === "student";
 
   return (
-    <nav className="bg-white border-b border-college-peach shadow-sm h-[70px] px-4 sm:px-8 flex items-center gap-4">
+    <nav className="bg-white border-b border-college-peach shadow-sm h-[70px] px-4 sm:px-8 flex items-center gap-4 relative">
       {/* Left side - Logo and text */}
       <div className="flex items-center gap-3 flex-shrink-0">
         <Image
@@ -212,8 +216,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
           {/* Search Dropdown */}
           {showDropdown && (
             <div
-              style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50 }}
-              className="mt-1 bg-white border border-college-peach rounded-lg shadow-lg max-h-72 overflow-y-auto"
+              className="absolute top-full left-0 right-0 mt-1 bg-white border border-college-peach rounded-lg shadow-lg max-h-72 overflow-y-auto z-[100]"
             >
               {results.documents && results.documents.length > 0 && (
                 <div>
@@ -297,7 +300,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
                 <span className="text-xs">▼</span>
               </button>
               {showDocumentsMenu && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-50">
+                <div className="absolute top-full left-0 mt-2 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-[100]">
                   <Link
                     href="/upload"
                     onClick={() => setShowDocumentsMenu(false)}
@@ -351,7 +354,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
               <span className="text-xs">▼</span>
             </button>
             {showAssignmentsMenu && (
-              <div className="absolute top-full left-0 mt-1 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-50">
+              <div className="absolute top-full left-0 mt-2 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-[100]">
                 <Link
                   href="/assignments"
                   onClick={() => setShowAssignmentsMenu(false)}
@@ -397,7 +400,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
                 <span className="text-xs">▼</span>
               </button>
               {showAnalyticsMenu && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-50">
+                <div className="absolute top-full left-0 mt-2 bg-white border border-college-peach rounded-lg shadow-lg py-2 min-w-[200px] z-[100]">
                   <Link
                     href="/analytics"
                     onClick={() => setShowAnalyticsMenu(false)}
