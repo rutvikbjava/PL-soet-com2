@@ -175,28 +175,30 @@ export async function POST(request: NextRequest) {
 
     step = 'insert-users';
     // Insert into users table
+    const userRecord = {
+      email,
+      full_name,
+      role,
+      department: finalDepartment || null,
+      section: section || null,
+      employee_id: employee_id || null,
+      designation: designation || null,
+      status,
+      approval_stage,
+      created_by_email: callerEmail
+    };
+
     const { data: newUser, error: insertError } = await (admin.from('users') as any)
-      .insert({
-        id: authUser.user.id,
-        email,
-        full_name,
-        role,
-        department: finalDepartment || null,
-        section: section || null,
-        employee_id: employee_id || null,
-        designation: designation || null,
-        status,
-        approval_stage,
-        created_by_email: callerEmail
-      })
+      .insert(userRecord)
       .select()
       .single();
 
     if (insertError) {
       // Rollback: delete auth user
       await admin.auth.admin.deleteUser(authUser.user.id);
+      console.error('insert-users failed:', insertError, 'attempted insert:', userRecord);
       return NextResponse.json(
-        { error: '[insert-users] Failed to create user record' },
+        { error: `[insert-users] ${insertError.message} | code: ${insertError.code} | details: ${insertError.details} | hint: ${insertError.hint}` },
         { status: 500 }
       );
     }
