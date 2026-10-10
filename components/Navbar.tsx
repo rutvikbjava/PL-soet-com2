@@ -38,10 +38,12 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
   const [showDocumentsMenu, setShowDocumentsMenu] = useState<boolean>(false);
   const [showAssignmentsMenu, setShowAssignmentsMenu] = useState<boolean>(false);
   const [showAnalyticsMenu, setShowAnalyticsMenu] = useState<boolean>(false);
+  const [isNavExpanded, setIsNavExpanded] = useState<boolean>(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const documentsMenuRef = useRef<HTMLDivElement>(null);
   const assignmentsMenuRef = useRef<HTMLDivElement>(null);
   const analyticsMenuRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const fetchNotificationCount = async () => {
@@ -169,7 +171,14 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
   const isStudent = userRole === "student";
 
   return (
-    <nav className="bg-white border-b border-college-peach shadow-sm h-[70px] px-4 sm:px-8 flex items-center gap-4 relative">
+    <nav 
+      ref={navRef}
+      onMouseEnter={() => setIsNavExpanded(true)}
+      onMouseLeave={() => setIsNavExpanded(false)}
+      className={`bg-white border-b border-college-peach shadow-sm px-4 sm:px-8 flex items-center gap-4 relative overflow-visible transition-all duration-300 ease-in-out ${
+        isNavExpanded ? 'h-auto py-4' : 'h-[70px]'
+      }`}
+    >
       {/* Left side - Logo and text */}
       <div className="flex items-center gap-3 flex-shrink-0">
         <Image
@@ -190,7 +199,7 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
       </div>
 
       {/* Center - Search box and navigation links */}
-      <div className="flex-1 flex items-center gap-4 overflow-hidden">
+      <div className="flex-1 flex items-center gap-4 overflow-visible">
         {/* Search Input */}
         <div ref={searchRef} className="relative max-w-xs w-full">
           <input
@@ -276,8 +285,12 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
         </div>
 
         {/* Navigation links with horizontal scroll */}
-        <div className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-thin scrollbar-thumb-college-peach scrollbar-track-transparent hover:scrollbar-thumb-college-secondary">
-          <div className="flex items-center gap-4 lg:gap-6 min-w-max px-2">
+        <div className={`flex-1 overflow-y-visible scrollbar-thin scrollbar-thumb-college-peach scrollbar-track-transparent hover:scrollbar-thumb-college-secondary transition-all duration-300 ${
+          isNavExpanded ? 'overflow-x-visible' : 'overflow-x-auto'
+        }`}>
+          <div className={`flex items-center gap-4 lg:gap-6 px-2 transition-all duration-300 ${
+            isNavExpanded ? 'flex-wrap' : 'min-w-max'
+          }`}>
           
           {/* Dashboard (for non-students) */}
           {!isStudent && (
