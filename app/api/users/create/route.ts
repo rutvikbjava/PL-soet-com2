@@ -92,6 +92,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '[checks] User already exists' }, { status: 400 });
     }
 
+    const { data: existingAuthData } = await (admin.auth.admin as any).getUserByEmail(email);
+    if (existingAuthData?.user) {
+      return NextResponse.json({ error: '[checks] User already exists in auth' }, { status: 400 });
+    }
+
     // Determine creation rights and set status/approval_stage
     let canCreate = false;
     let status: 'active' | 'pending' = 'active';
