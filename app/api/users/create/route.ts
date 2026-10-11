@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     step = 'checks';
     // Parse request body
     const body = await request.json();
-    const {
+    let {
       email,
       full_name,
       password,
@@ -66,6 +66,9 @@ export async function POST(request: NextRequest) {
       designation,
       section
     } = body;
+
+    // Normalize email
+    email = email?.toLowerCase().trim();
 
     // Validate required fields
     if (!email || !full_name || !role) {
@@ -95,7 +98,7 @@ export async function POST(request: NextRequest) {
     const { data: listData } = await admin.auth.admin.listUsers({ perPage: 1000 });
     const existingAuthUser = listData?.users?.find((u: any) => u.email === email);
     if (existingAuthUser) {
-      return NextResponse.json({ error: '[checks] User already exists in auth' }, { status: 400 });
+      return NextResponse.json({ error: '[checks] User already exists' }, { status: 400 });
     }
 
     // Determine creation rights and set status/approval_stage
@@ -180,9 +183,8 @@ export async function POST(request: NextRequest) {
     }
 
     step = 'insert-users';
-    // Insert into users table
+    // Update existing users row (created by trigger) or insert if not found
     const userRecord = {
-      email,
       full_name,
       role,
       department: finalDepartment || null,
@@ -194,69 +196,99 @@ export async function POST(request: NextRequest) {
       created_by_email: callerEmail
     };
 
-    const { data: newUser, error: insertError } = await (admin.from('users') as any)
-      .insert(userRecord)
+    const { data: updatedUser, error: updateError } = await (admin.from('users') as any)
+      .update(userRecord)
+      .eq('email', email)
       .select()
       .single();
 
-    if (insertError) {
-      // Rollback: delete auth user
+    let newUser = updatedUser;
+    let finalError = updateError;
+
+    // If update found no row, fall back to insert
+    if (!updatedUser && updateError) {
+      const insertRecord = {
+        id: authUser.user.id,
+        email,
+        ...userRecord
+      };
+
+      const { data: insertedUser, error: insertError } = await (admin.from('users') as any)
+        .insert(insertRecord)
+        .select()
+        .single();
+
+      newUser = insertedUser;
+      finalError = insertError;
+    }
+
+    if (finalError || !newUser) {
+      // Rollback: delete users row and auth user
+      await (admin.from('users') as any).delete().eq('email', email);
       await admin.auth.admin.deleteUser(authUser.user.id);
-      console.error('insert-users failed:', insertError, 'attempted insert:', userRecord);
+      console.error('insert-users failed:', finalError, 'attempted data:', userRecord);
       return NextResponse.json(
-        { error: `[insert-users] ${insertError.message} | code: ${insertError.code} | details: ${insertError.details} | hint: ${insertError.hint}` },
+        { error: `[insert-users] ${finalError.message} | code: ${finalError.code} | details: ${finalError.details}` },
         { status: 500 }
       );
     }
 
     step = 'insert-log';
-    // Insert approval log
-    await (admin.from('user_approval_log') as any).insert({
-      user_email: email,
-      user_name: full_name,
-      action: 'created',
-      stage: approval_stage,
-      actor_email: callerEmail,
-      actor_role: caller.role
-    });
+    // Insert approval log (non-fatal)
+    try {
+      await (admin.from('user_approval_log') as any).insert({
+        user_email: email,
+        user_name: full_name,
+        action: 'created',
+        stage: approval_stage,
+        actor_email: callerEmail,
+        actor_role: caller.role
+      });
+    } catch (logError) {
+      console.error('insert-log failed (non-fatal):', logError);
+    }
 
     step = 'notify';
-    // Send notifications based on approval_stage
-    if (approval_stage === 'hod') {
-      // Notify all active HODs in the same department
-      const { data: hods } = await (admin.from('users') as any)
-        .select('email')
-        .eq('role', 'hod')
-        .eq('department', finalDepartment)
-        .or('status.is.null,status.eq.active');
+    // Send notifications based on approval_stage (non-fatal)
+    try {
+      if (approval_stage === 'hod') {
+        // Notify all active HODs in the same department
+        const { data: hods } = await (admin.from('users') as any)
+          .select('email')
+          .eq('role', 'hod')
+          .eq('department', finalDepartment)
+          .or('status.is.null,status.eq.active');
 
-      if (hods && hods.length > 0) {
-        const notifications = hods.map((hod: { email: string }) => ({
-          user_email: hod.email,
-          message: `New student pending your approval: ${full_name}`,
-          link: '/users',
-          is_read: false
-        }));
+        if (hods && hods.length > 0) {
+          const notifications = hods.map((hod: { email: string }) => ({
+            user_email: hod.email,
+            message: `New student pending your approval: ${full_name}`,
+            link: '/users',
+            is_read: false
+          }));
 
-        await (admin.from('assignment_notifications') as any).insert(notifications);
+          await (admin.from('assignment_notifications') as any).insert(notifications);
+        }
+      } else if (approval_stage === 'principal') {
+        // Notify all active principals
+        const { data: principals } = await (admin.from('users') as any)
+          .select('email')
+          .eq('role', 'principal')
+          .or('status.is.null,status.eq.active');
+
+        if (principals && principals.length > 0) {
+          const notifications = principals.map((principal: { email: string }) => ({
+            user_email: principal.email,
+            message: `New user pending approval: ${full_name} (${role})`,
+            link: '/users',
+            is_read: false
+          }));
+
+          await (admin.from('assignment_notifications') as any).insert(notifications);
+        }
       }
-    } else if (approval_stage === 'principal') {
-      // Notify all active principals
-      const { data: principals } = await (admin.from('users') as any)
-        .select('email')
-        .eq('role', 'principal')
-        .or('status.is.null,status.eq.active');
-
-      if (principals && principals.length > 0) {
-        const notifications = principals.map((principal: { email: string }) => ({
-          user_email: principal.email,
-          message: `New user pending approval: ${full_name} (${role})`,
-          link: '/users',
-          is_read: false
-        }));
-
-        await (admin.from('assignment_notifications') as any).insert(notifications);
-      }
+    } catch (notifyError) {
+      console.error('notify failed (non-fatal):', notifyError);
     }
 
     return NextResponse.json({
