@@ -34,6 +34,7 @@ interface TestCase {
   input: string;
   expected_output: string;
   sort_order: number;
+  match_type?: "exact" | "smart";
 }
 
 interface TestResult {
@@ -354,6 +355,19 @@ export default function AssignmentDetailPage() {
           // Read file as text
           codeText = await file.text();
 
+          // Validate before running
+          if (!assignment.language_id) {
+            throw new Error("This assignment has no language set");
+          }
+
+          if (testCases.length === 0) {
+            throw new Error("This assignment has no test cases yet");
+          }
+
+          if (!codeText.trim()) {
+            throw new Error("The file is empty");
+          }
+
           // Run code against test cases
           const runResponse = await fetch("/api/run-code", {
             method: "POST",
@@ -361,11 +375,13 @@ export default function AssignmentDetailPage() {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
+              source_code: codeText,
               language_id: assignment.language_id,
-              code: codeText,
-              tests: testCases.map((tc) => ({
+              assignment_id: assignmentId,
+              test_cases: testCases.map((tc) => ({
                 input: tc.input,
                 expected_output: tc.expected_output,
+                match_type: tc.match_type,
               })),
             }),
           });
@@ -765,6 +781,7 @@ export default function AssignmentDetailPage() {
           test_cases: cases.map((tc) => ({
             input: tc.input,
             expected_output: tc.expected_output,
+            match_type: tc.match_type,
           })),
         }),
       });
@@ -842,6 +859,7 @@ export default function AssignmentDetailPage() {
             {
               input: customInput,
               expected_output: "",
+              match_type: "exact",
             },
           ],
         }),

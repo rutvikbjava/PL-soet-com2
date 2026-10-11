@@ -118,7 +118,7 @@ export default function AssignmentsPage() {
               .eq("student_email", email)
               .order("submitted_at", { ascending: false })
               .limit(1)
-              .single();
+              .maybeSingle();
 
             assignmentsWithSubmissions.push({
               ...assignment,
