@@ -13,6 +13,11 @@ const clean = (v: any): any =>
     ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clean(x)]))
     : v;
 
+const enc = (s: string) => Buffer.from(s ?? '', 'utf8').toString('base64');
+const dec = (s: any) => typeof s === 'string' && s ? Buffer.from(s, 'base64').toString('utf8') : '';
+
+const BASE = "https://ce.judge0.com";
+
 interface TestCase {
   input: string;
   expected_output: string;
@@ -88,15 +93,14 @@ export async function POST(request: NextRequest) {
     for (const test_case of test_cases) {
       // Prepare submission for Judge0
       const submissionPayload = {
-        source_code: Buffer.from(source_code).toString("base64"),
+        source_code: enc(source_code),
         language_id,
-        stdin: Buffer.from(test_case.input || "").toString("base64"),
-        expected_output: Buffer.from(test_case.expected_output || "").toString("base64"),
-        base64_encoded: true,
+        stdin: enc(test_case.input || ""),
+        expected_output: enc(test_case.expected_output || ""),
       };
 
       const response = await fetch(
-        "https://ce.judge0.com/submissions?wait=true",
+        `${BASE}/submissions?base64_encoded=true&wait=true&fields=*`,
         {
           method: "POST",
           headers: {
@@ -112,16 +116,14 @@ export async function POST(request: NextRequest) {
 
       const result: Judge0Response = await response.json();
 
-      // Decode stdout
-      const stdout = result.stdout
-        ? Buffer.from(result.stdout, "base64").toString()
-        : "";
+      // Decode text fields
+      const stdout = dec(result.stdout);
+      const stderr = dec(result.stderr);
+      const compile_output = dec(result.compile_output);
 
       // Check for compilation error (status.id === 6)
       if (result.status.id === 6) {
-        const compileError = result.compile_output
-          ? Buffer.from(result.compile_output, "base64").toString()
-          : "Compilation failed";
+        const compileError = compile_output || "Compilation failed";
 
         return NextResponse.json({
           compile_error: clean(compileError),
