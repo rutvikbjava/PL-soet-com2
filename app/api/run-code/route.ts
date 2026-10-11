@@ -6,6 +6,13 @@ import { matchOutput } from "@/lib/output-matcher";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+const clean = (v: any): any =>
+  typeof v === 'string' ? v.replace(/\u0000/g, '')
+  : Array.isArray(v) ? v.map(clean)
+  : v && typeof v === 'object'
+    ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clean(x)]))
+    : v;
+
 interface TestCase {
   input: string;
   expected_output: string;
@@ -117,7 +124,7 @@ export async function POST(request: NextRequest) {
           : "Compilation failed";
 
         return NextResponse.json({
-          compile_error: compileError,
+          compile_error: clean(compileError),
           results: [],
           passed: 0,
           total: test_cases.length,
@@ -153,12 +160,12 @@ export async function POST(request: NextRequest) {
       }
 
       results.push({
-        input: test_case.input,
-        expected: test_case.expected_output,
-        actual: stdout.trim(),
+        input: clean(test_case.input),
+        expected: clean(test_case.expected_output),
+        actual: clean(stdout.trim()),
         passed,
-        match_reason: reason,
-        status: result.status?.description ?? "Unknown",
+        match_reason: clean(reason),
+        status: clean(result.status?.description ?? "Unknown"),
         time: testTime,
         memory: testMemory,
       });

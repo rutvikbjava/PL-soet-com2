@@ -10,6 +10,13 @@ import { detectLinkType, isValidUrl } from "@/lib/link-detector";
 import { PROJECT_CATEGORIES } from "@/lib/project-categories";
 import { similarityPercent } from "@/lib/similarity";
 
+const clean = (v: any): any =>
+  typeof v === 'string' ? v.replace(/\u0000/g, '')
+  : Array.isArray(v) ? v.map(clean)
+  : v && typeof v === 'object'
+    ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clean(x)]))
+    : v;
+
 interface Assignment {
   id: string;
   title: string;
@@ -355,6 +362,11 @@ export default function AssignmentDetailPage() {
           // Read file as text
           codeText = await file.text();
 
+          // Check for null characters
+          if (codeText.includes('\u0000')) {
+            throw new Error("This file is not plain text. Save it as UTF-8 (not Unicode/UTF-16) and make sure it is a .java source file, not a compiled file.");
+          }
+
           // Validate before running
           if (!assignment.language_id) {
             throw new Error("This assignment has no language set");
@@ -443,11 +455,11 @@ export default function AssignmentDetailPage() {
 
       // Add code assignment fields if applicable
       if (assignment.type === "code") {
-        submissionData.code_text = codeText;
+        submissionData.code_text = clean(codeText);
         submissionData.tests_passed = testsPassed;
         submissionData.tests_total = testsTotal;
-        submissionData.test_results = testResults;
-        submissionData.compile_error = compileError;
+        submissionData.test_results = clean(testResults);
+        submissionData.compile_error = clean(compileError);
         submissionData.max_time = maxTime;
         submissionData.max_memory = maxMemory;
       }
@@ -798,8 +810,8 @@ export default function AssignmentDetailPage() {
         .update({
           tests_passed: result.passed,
           tests_total: result.total,
-          test_results: result.results,
-          compile_error: result.compile_error,
+          test_results: clean(result.results),
+          compile_error: clean(result.compile_error),
           max_time: result.max_time,
           max_memory: result.max_memory,
         })
