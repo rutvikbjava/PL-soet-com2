@@ -92,8 +92,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '[checks] User already exists' }, { status: 400 });
     }
 
-    const { data: existingAuthData } = await (admin.auth.admin as any).getUserByEmail(email);
-    if (existingAuthData?.user) {
+    const { data: listData } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    const existingAuthUser = listData?.users?.find((u: any) => u.email === email);
+    if (existingAuthUser) {
       return NextResponse.json({ error: '[checks] User already exists in auth' }, { status: 400 });
     }
 
