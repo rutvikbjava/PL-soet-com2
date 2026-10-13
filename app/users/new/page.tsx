@@ -12,6 +12,16 @@ interface CurrentUser {
   department: string;
 }
 
+interface Department {
+  id: string;
+  name: string;
+}
+
+interface Section {
+  id: string;
+  name: string;
+}
+
 export default function CreateUserPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -23,9 +33,14 @@ export default function CreateUserPage() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("");
   const [department, setDepartment] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [section, setSection] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [designation, setDesignation] = useState("");
+
+  // Dropdown data
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -72,9 +87,22 @@ export default function CreateUserPage() {
           department: userData.department || "",
         });
 
+        // Fetch all departments
+        const { data: deptData } = await (supabase.from("departments") as any)
+          .select("id, name")
+          .order("name", { ascending: true });
+
+        const deptList = (deptData ?? []) as Department[];
+        setDepartments(deptList);
+
         // Pre-fill department for faculty and HoD
         if ((userRole === "faculty" || userRole === "hod") && userData.department) {
           setDepartment(userData.department);
+          // Find matching department ID
+          const matchedDept = deptList.find((d) => d.name === userData.department);
+          if (matchedDept) {
+            setDepartmentId(matchedDept.id);
+          }
         }
 
         setLoading(false);
@@ -86,6 +114,33 @@ export default function CreateUserPage() {
 
     checkAuth();
   }, [router]);
+
+  // Load sections when department changes
+  useEffect(() => {
+    const loadSections = async () => {
+      if (!departmentId) {
+        setSections([]);
+        setSection("");
+        return;
+      }
+
+      try {
+        const supabase = createBrowserClient();
+        const { data: sectionData } = await (supabase.from("sections") as any)
+          .select("id, name")
+          .eq("department_id", departmentId)
+          .order("name", { ascending: true });
+
+        setSections((sectionData ?? []) as Section[]);
+        setSection(""); // Reset section when department changes
+      } catch (err) {
+        console.error("Load sections error:", err);
+        setSections([]);
+      }
+    };
+
+    loadSections();
+  }, [departmentId]);
 
   const getAllowedRoles = (): string[] => {
     if (!currentUser) return [];
@@ -212,6 +267,7 @@ export default function CreateUserPage() {
       setSection("");
       if (currentUser?.role !== "hod" && currentUser?.role !== "faculty") {
         setDepartment("");
+        setDepartmentId("");
       }
       setEmployeeId("");
       setDesignation("");
@@ -342,15 +398,25 @@ export default function CreateUserPage() {
               <label htmlFor="department" className="label">
                 Department
               </label>
-              <input
-                type="text"
+              <select
                 id="department"
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
+                value={departmentId}
+                onChange={(e) => {
+                  const selectedId = e.target.value;
+                  setDepartmentId(selectedId);
+                  const selectedDept = departments.find((d) => d.id === selectedId);
+                  setDepartment(selectedDept?.name || "");
+                }}
                 disabled={submitting || isFacultyOrHod}
                 className="input-field"
-                placeholder="Enter department"
-              />
+              >
+                <option value="">Select department</option>
+                {departments.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </option>
+                ))}
+              </select>
               {isFacultyOrHod && (
                 <p className="text-xs text-gray-400 font-poppins mt-1">
                   Pre-filled with your department
@@ -364,16 +430,21 @@ export default function CreateUserPage() {
                 <label htmlFor="section" className="label">
                   Section
                 </label>
-                <input
-                  type="text"
+                <select
                   id="section"
                   value={section}
                   onChange={(e) => setSection(e.target.value)}
-                  disabled={submitting}
+                  disabled={submitting || !departmentId}
                   className="input-field"
-                  placeholder="Enter section (e.g. A, B)"
                   required
-                />
+                >
+                  <option value="">Select section</option>
+                  {sections.map((sec) => (
+                    <option key={sec.id} value={sec.name}>
+                      {sec.name}
+                    </option>
+                  ))}
+                </select>
                 <p className="text-xs text-gray-400 font-poppins mt-1">
                   Required for students
                 </p>

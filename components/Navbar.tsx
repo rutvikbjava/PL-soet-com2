@@ -506,6 +506,16 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             </Link>
           )}
 
+          {/* Departments (for principal, admin) */}
+          {(userRole === "principal" || userRole === "admin") && (
+            <Link
+              href="/departments"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+            >
+              Departments
+            </Link>
+          )}
+
         </div>
       </div>
     </div>
