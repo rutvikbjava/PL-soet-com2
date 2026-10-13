@@ -170,11 +170,12 @@ export default function AssignmentDetailPage() {
       // Fetch user profile
       const { data: userData } = await supabase
         .from("users")
-        .select("role")
+        .select("role, department")
         .eq("email", email)
         .single();
 
       const role = (userData as any)?.role || null;
+      const userDepartment = (userData as any)?.department || null;
       setUserRole(role);
 
       // Fetch assignment
@@ -186,6 +187,31 @@ export default function AssignmentDetailPage() {
 
       if (assignmentError || !assignmentData) {
         throw new Error("Assignment not found");
+      }
+
+      const createdByEmail = (assignmentData as Assignment).created_by_email;
+
+      // Access control for HOD
+      if (role === "hod") {
+        // Check if assignment creator is faculty in HOD's department
+        const { data: creatorData } = await supabase
+          .from("users")
+          .select("department")
+          .eq("email", createdByEmail)
+          .eq("role", "faculty")
+          .single();
+
+        const creator = creatorData as { department: string } | null;
+        if (!creator || creator.department !== userDepartment) {
+          router.push("/assignments");
+          return;
+        }
+      }
+
+      // Access control for faculty (not creator)
+      if (role === "faculty" && createdByEmail !== email) {
+        router.push("/assignments");
+        return;
       }
 
       setAssignment(assignmentData as Assignment);
@@ -221,8 +247,8 @@ export default function AssignmentDetailPage() {
         }
       }
 
-      // If faculty, fetch students and submissions
-      if (role === "faculty") {
+      // If faculty/hod/coe/principal/admin, fetch students and submissions
+      if (role === "faculty" || role === "hod" || role === "coe" || role === "principal" || role === "admin") {
         const assignmentSection = (assignmentData as Assignment).section;
 
         // Fetch students in the section
@@ -260,8 +286,8 @@ export default function AssignmentDetailPage() {
 
         setStudentsWithSubmissions(studentsList);
 
-        // Calculate similarities for code assignments
-        if ((assignmentData as Assignment).type === "code" && allSubmissions.length > 0) {
+        // Calculate similarities for code assignments (only for faculty)
+        if (role === "faculty" && (assignmentData as Assignment).type === "code" && allSubmissions.length > 0) {
           // Fetch user data for all student IDs
           const studentIds = allSubmissions
             .map(sub => sub.student_email) // Using student_email as the identifier
@@ -1009,14 +1035,17 @@ export default function AssignmentDetailPage() {
     );
   }
 
-  // Faculty view placeholder
-  if (userRole === "faculty") {
+  // Management view (faculty/hod/coe/principal/admin)
+  if (userRole === "faculty" || userRole === "hod" || userRole === "coe" || userRole === "principal" || userRole === "admin") {
     if (!assignment) return null;
 
     const submittedCount = studentsWithSubmissions.filter((s) => s.latestSubmission).length;
     const totalCount = studentsWithSubmissions.length;
     const missingCount = totalCount - submittedCount;
     const missingStudents = studentsWithSubmissions.filter((s) => !s.latestSubmission);
+    
+    // Determine if user can grade (faculty/admin can grade, hod/coe/principal are read-only)
+    const canGrade = userRole === "faculty" || userRole === "admin";
 
     return (
       <div className="min-h-screen bg-college-bg">
@@ -1100,12 +1129,21 @@ export default function AssignmentDetailPage() {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => toggleRow(student.email, sub)}
-                        className="text-college-secondary text-sm font-poppins hover:underline"
-                      >
-                        {isExpanded ? "Close" : "Grade"}
-                      </button>
+                      {canGrade ? (
+                        <button
+                          onClick={() => toggleRow(student.email, sub)}
+                          className="text-college-secondary text-sm font-poppins hover:underline"
+                        >
+                          {isExpanded ? "Close" : "Grade"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => toggleRow(student.email, sub)}
+                          className="text-college-secondary text-sm font-poppins hover:underline"
+                        >
+                          {isExpanded ? "Close" : "View"}
+                        </button>
+                      )}
                     </div>
 
                     {/* Team Members */}
@@ -1185,65 +1223,97 @@ export default function AssignmentDetailPage() {
                     {/* Grading Form (Expanded) */}
                     {isExpanded && (
                       <div className="border-t border-gray-200 pt-4 mt-4">
-                        <h4 className="text-sm font-semibold text-college-accent font-poppins mb-3">
-                          Grade Submission
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
-                              Marks (out of {assignment.max_marks})
-                            </label>
-                            <input
-                              type="number"
-                              value={gradingMarks}
-                              onChange={(e) =>
-                                setGradingMarks(parseInt(e.target.value) || 0)
-                              }
-                              min={0}
-                              max={assignment.max_marks}
-                              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
-                            />
-                          </div>
-                        </div>
-                        <div className="mb-4">
-                          <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
-                            Feedback
-                          </label>
-                          <textarea
-                            value={gradingFeedback}
-                            onChange={(e) => setGradingFeedback(e.target.value)}
-                            placeholder="Enter feedback for the student"
-                            className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
-                            rows={3}
-                          />
-                        </div>
-                        {gradingError && (
-                          <p className="text-red-500 text-sm font-poppins mb-3">
-                            {gradingError}
-                          </p>
+                        {canGrade ? (
+                          <>
+                            <h4 className="text-sm font-semibold text-college-accent font-poppins mb-3">
+                              Grade Submission
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
+                                  Marks (out of {assignment.max_marks})
+                                </label>
+                                <input
+                                  type="number"
+                                  value={gradingMarks}
+                                  onChange={(e) =>
+                                    setGradingMarks(parseInt(e.target.value) || 0)
+                                  }
+                                  min={0}
+                                  max={assignment.max_marks}
+                                  className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                                />
+                              </div>
+                            </div>
+                            <div className="mb-4">
+                              <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
+                                Feedback
+                              </label>
+                              <textarea
+                                value={gradingFeedback}
+                                onChange={(e) => setGradingFeedback(e.target.value)}
+                                placeholder="Enter feedback for the student"
+                                className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
+                                rows={3}
+                              />
+                            </div>
+                            {gradingError && (
+                              <p className="text-red-500 text-sm font-poppins mb-3">
+                                {gradingError}
+                              </p>
+                            )}
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => handleGrade(sub.id, student.email)}
+                                disabled={grading}
+                                className="bg-green-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-green-600 transition-colors"
+                              >
+                                {grading ? "Saving..." : "Save Grade"}
+                              </button>
+                              <button
+                                onClick={() => handleReturn(sub.id, student.email)}
+                                disabled={grading}
+                                className="bg-orange-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-orange-600 transition-colors"
+                              >
+                                {grading ? "Returning..." : "Return for Correction"}
+                              </button>
+                              <button
+                                onClick={() => toggleRow(student.email, sub)}
+                                className="btn-secondary text-sm"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <h4 className="text-sm font-semibold text-college-accent font-poppins mb-3">
+                              Submission Details (Read-Only)
+                            </h4>
+                            {sub.marks !== null && sub.marks !== undefined && (
+                              <div className="mb-4">
+                                <span className="text-xs text-gray-500 font-poppins">Marks:</span>
+                                <p className="text-lg font-semibold text-college-accent font-poppins">
+                                  {sub.marks} / {assignment.max_marks}
+                                </p>
+                              </div>
+                            )}
+                            {sub.feedback && (
+                              <div className="mb-4">
+                                <span className="text-xs text-gray-500 font-poppins">Feedback:</span>
+                                <p className="text-sm text-gray-600 font-poppins whitespace-pre-wrap mt-1">
+                                  {sub.feedback}
+                                </p>
+                              </div>
+                            )}
+                            <button
+                              onClick={() => toggleRow(student.email, sub)}
+                              className="btn-secondary text-sm"
+                            >
+                              Close
+                            </button>
+                          </>
                         )}
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() => handleGrade(sub.id, student.email)}
-                            disabled={grading}
-                            className="bg-green-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-green-600 transition-colors"
-                          >
-                            {grading ? "Saving..." : "Save Grade"}
-                          </button>
-                          <button
-                            onClick={() => handleReturn(sub.id, student.email)}
-                            disabled={grading}
-                            className="bg-orange-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-orange-600 transition-colors"
-                          >
-                            {grading ? "Returning..." : "Return for Correction"}
-                          </button>
-                          <button
-                            onClick={() => toggleRow(student.email, sub)}
-                            className="btn-secondary text-sm"
-                          >
-                            Cancel
-                          </button>
-                        </div>
                       </div>
                     )}
                   </div>
@@ -1361,12 +1431,21 @@ export default function AssignmentDetailPage() {
                           </td>
                           <td className="px-4 py-3">
                             {sub ? (
-                              <button
-                                onClick={() => toggleRow(student.email, sub)}
-                                className="text-college-secondary text-sm font-poppins hover:underline"
-                              >
-                                {isExpanded ? "Close" : "Grade"}
-                              </button>
+                              canGrade ? (
+                                <button
+                                  onClick={() => toggleRow(student.email, sub)}
+                                  className="text-college-secondary text-sm font-poppins hover:underline"
+                                >
+                                  {isExpanded ? "Close" : "Grade"}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => toggleRow(student.email, sub)}
+                                  className="text-college-secondary text-sm font-poppins hover:underline"
+                                >
+                                  {isExpanded ? "Close" : "View"}
+                                </button>
+                              )
                             ) : (
                               <span className="text-gray-400 text-sm">—</span>
                             )}
@@ -1520,8 +1599,8 @@ export default function AssignmentDetailPage() {
                                   </div>
                                 )}
 
-                                {/* Re-run Test Cases and Custom Test - Code Assignments Only */}
-                                {assignment.type === "code" && sub.code_text && (
+                                {/* Re-run Test Cases and Custom Test - Code Assignments Only (Faculty/Admin only) */}
+                                {canGrade && assignment.type === "code" && sub.code_text && (
                                   <div className="mb-4 space-y-3">
                                     {/* Re-run Test Cases Button */}
                                     <div>
@@ -1635,7 +1714,7 @@ export default function AssignmentDetailPage() {
                                 )}
 
                                 {/* Suggested Marks (Code Assignments Only) */}
-                                {assignment.type === "code" &&
+                                {canGrade && assignment.type === "code" &&
                                   !sub.compile_error &&
                                   sub.tests_passed !== null &&
                                   sub.tests_passed !== undefined &&
@@ -1654,62 +1733,92 @@ export default function AssignmentDetailPage() {
                                     </div>
                                   )}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                  <div>
-                                    <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
-                                      Marks (out of {assignment.max_marks})
-                                    </label>
-                                    <input
-                                      type="number"
-                                      value={gradingMarks}
-                                      onChange={(e) =>
-                                        setGradingMarks(parseInt(e.target.value) || 0)
-                                      }
-                                      min={0}
-                                      max={assignment.max_marks}
-                                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
-                                    />
-                                  </div>
-                                </div>
-                                <div className="mb-4">
-                                  <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
-                                    Feedback
-                                  </label>
-                                  <textarea
-                                    value={gradingFeedback}
-                                    onChange={(e) => setGradingFeedback(e.target.value)}
-                                    placeholder="Enter feedback for the student"
-                                    className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
-                                    rows={3}
-                                  />
-                                </div>
-                                {gradingError && (
-                                  <p className="text-red-500 text-sm font-poppins mb-3">
-                                    {gradingError}
-                                  </p>
+                                {canGrade ? (
+                                  <>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                      <div>
+                                        <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
+                                          Marks (out of {assignment.max_marks})
+                                        </label>
+                                        <input
+                                          type="number"
+                                          value={gradingMarks}
+                                          onChange={(e) =>
+                                            setGradingMarks(parseInt(e.target.value) || 0)
+                                          }
+                                          min={0}
+                                          max={assignment.max_marks}
+                                          className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="mb-4">
+                                      <label className="block text-xs font-medium text-gray-700 font-poppins mb-1">
+                                        Feedback
+                                      </label>
+                                      <textarea
+                                        value={gradingFeedback}
+                                        onChange={(e) => setGradingFeedback(e.target.value)}
+                                        placeholder="Enter feedback for the student"
+                                        className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg font-poppins text-sm focus:outline-none focus:border-college-secondary resize-none"
+                                        rows={3}
+                                      />
+                                    </div>
+                                    {gradingError && (
+                                      <p className="text-red-500 text-sm font-poppins mb-3">
+                                        {gradingError}
+                                      </p>
+                                    )}
+                                    <div className="flex gap-3">
+                                      <button
+                                        onClick={() => handleGrade(sub.id, student.email)}
+                                        disabled={grading}
+                                        className="bg-green-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-green-600 transition-colors"
+                                      >
+                                        {grading ? "Saving..." : "Save Grade"}
+                                      </button>
+                                      <button
+                                        onClick={() => handleReturn(sub.id, student.email)}
+                                        disabled={grading}
+                                        className="bg-orange-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-orange-600 transition-colors"
+                                      >
+                                        {grading ? "Returning..." : "Return for Correction"}
+                                      </button>
+                                      <button
+                                        onClick={() => toggleRow(student.email, sub)}
+                                        className="btn-secondary text-sm"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    {/* Read-only view for HOD/CoE/Principal */}
+                                    {sub.marks !== null && sub.marks !== undefined && (
+                                      <div className="mb-4">
+                                        <span className="text-xs text-gray-500 font-poppins">Marks:</span>
+                                        <p className="text-lg font-semibold text-college-accent font-poppins">
+                                          {sub.marks} / {assignment.max_marks}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {sub.feedback && (
+                                      <div className="mb-4">
+                                        <span className="text-xs text-gray-500 font-poppins">Feedback:</span>
+                                        <p className="text-sm text-gray-600 font-poppins whitespace-pre-wrap mt-1">
+                                          {sub.feedback}
+                                        </p>
+                                      </div>
+                                    )}
+                                    <button
+                                      onClick={() => toggleRow(student.email, sub)}
+                                      className="btn-secondary text-sm"
+                                    >
+                                      Close
+                                    </button>
+                                  </>
                                 )}
-                                <div className="flex gap-3">
-                                  <button
-                                    onClick={() => handleGrade(sub.id, student.email)}
-                                    disabled={grading}
-                                    className="bg-green-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-green-600 transition-colors"
-                                  >
-                                    {grading ? "Saving..." : "Save Grade"}
-                                  </button>
-                                  <button
-                                    onClick={() => handleReturn(sub.id, student.email)}
-                                    disabled={grading}
-                                    className="bg-orange-500 text-white px-4 py-2 rounded-full font-poppins font-semibold text-sm hover:bg-orange-600 transition-colors"
-                                  >
-                                    {grading ? "Returning..." : "Return for Correction"}
-                                  </button>
-                                  <button
-                                    onClick={() => toggleRow(student.email, sub)}
-                                    className="btn-secondary text-sm"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
                               </div>
                             </td>
                           </tr>

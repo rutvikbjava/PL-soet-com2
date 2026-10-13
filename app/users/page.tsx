@@ -12,6 +12,7 @@ interface User {
   full_name: string;
   role: string;
   department: string | null;
+  section: string | null;
   status: string;
   approval_stage: string | null;
   created_by_email: string | null;
@@ -25,6 +26,7 @@ interface CurrentUser {
   email: string;
   role: string;
   department: string | null;
+  section: string | null;
 }
 
 interface ApprovalLogEntry {
@@ -64,7 +66,7 @@ export default function UsersPage() {
 
         // Fetch current user's data
         const { data: userData } = await (supabase.from("users") as any)
-          .select("id, email, role, department")
+          .select("id, email, role, department, section")
           .eq("email", userEmail)
           .single();
 
@@ -86,6 +88,7 @@ export default function UsersPage() {
           email: userData.email,
           role: userData.role,
           department: userData.department || null,
+          section: userData.section || null,
         });
 
         // Fetch users based on role
@@ -102,22 +105,37 @@ export default function UsersPage() {
   }, [router]);
 
   const fetchUsers = async (supabase: any, role: string, department: string | null, email: string) => {
+    // First fetch current user's section for faculty role
+    let userSection: string | null = null;
+    if (role === "faculty") {
+      const { data: facultyData } = await (supabase.from("users") as any)
+        .select("section")
+        .eq("email", email)
+        .single();
+      userSection = facultyData?.section || null;
+    }
+
     let query = (supabase.from("users") as any).select(
-      "id, email, full_name, role, department, status, approval_stage, created_by_email, employee_id, designation, created_at"
+      "id, email, full_name, role, department, section, status, approval_stage, created_by_email, employee_id, designation, created_at"
     );
 
     // Filter based on current user's role
-    if (role === "hod") {
-      // HoD sees only users in their department
+    if (role === "faculty") {
+      // Faculty sees students in their department AND section
+      query = query
+        .eq("role", "student")
+        .eq("department", department)
+        .eq("section", userSection);
+    } else if (role === "hod") {
+      // HOD sees all users in their department (faculty and students, all sections)
       query = query.eq("department", department);
     } else if (role === "coe") {
-      // CoE sees only faculty
-      query = query.eq("role", "faculty");
-    } else if (role === "faculty") {
-      // Faculty sees only users they created
-      query = query.eq("created_by_email", email);
+      // CoE sees all users across all departments and roles (no filter)
+      // No filter applied
+    } else if (role === "principal" || role === "admin") {
+      // Principal and admin see all users (no filter)
+      // No filter applied
     }
-    // Principal and admin see everyone (no filter)
 
     query = query.order("created_at", { ascending: false });
 
