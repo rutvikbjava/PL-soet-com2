@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 import SignaturePad from "@/components/SignaturePad";
@@ -10,74 +9,56 @@ import SignaturePad from "@/components/SignaturePad";
 interface Student {
   email: string;
   full_name: string;
+  employee_id: string | null;
   department: string;
   section: string;
-  current_year: number | null;
-  current_semester: number | null;
-  employee_id: string | null;
+  current_year: number;
+  current_semester: number;
+  phone: string | null;
 }
 
-interface CurrentUser {
-  email: string;
-  role: string;
-  full_name: string;
-  department: string | null;
-  section: string | null;
+interface AdmissionSeason {
+  id: string;
+  department: string;
+  section: string;
+  academic_year: string;
+  target_semester: number;
+  status: string;
 }
 
-interface DocumentField {
+interface DocumentUpload {
   id: string;
   file: File | null;
   label: string;
 }
 
-export default function NewPromotionFormPage() {
+export default function PromoteNewPage() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [student, setStudent] = useState<Student | null>(null);
+  const [season, setSeason] = useState<AdmissionSeason | null>(null);
+  const [noSeasonMessage, setNoSeasonMessage] = useState(false);
 
-  // Section 1: Student Details
-  const [selectedStudentEmail, setSelectedStudentEmail] = useState("");
-  const [fullName, setFullName] = useState("");
+  // Form fields
   const [prnNo, setPrnNo] = useState("");
   const [program, setProgram] = useState("");
   const [mobile1, setMobile1] = useState("");
   const [mobile2, setMobile2] = useState("");
-  const [email, setEmail] = useState("");
-
-  // Section 2: Parents Details
   const [parentName, setParentName] = useState("");
   const [parentMobile1, setParentMobile1] = useState("");
   const [parentMobile2, setParentMobile2] = useState("");
-
-  // Section 3: Academic Eligibility
   const [eligibleForYear, setEligibleForYear] = useState("");
   const [resultStatus, setResultStatus] = useState("");
-  const [classTeacherRemark, setClassTeacherRemark] = useState("");
-
-  // Section 4: Documents
-  const [documents, setDocuments] = useState<DocumentField[]>([
+  const [documents, setDocuments] = useState<DocumentUpload[]>([
     { id: crypto.randomUUID(), file: null, label: "" },
   ]);
-
-  // Section 5: Student Declaration
-  const [studentSignatureDataUrl, setStudentSignatureDataUrl] = useState<string | null>(null);
-
-  // Store selected student for current_year and current_semester
-  const [selectedStudentData, setSelectedStudentData] = useState<Student | null>(null);
-
-  const todayFormatted = new Date().toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  const [studentSignature, setStudentSignature] = useState<string | null>(null);
 
   useEffect(() => {
-    const checkAuth = async () => {
+    const fetchData = async () => {
       try {
+        setLoading(true);
         const supabase = createBrowserClient();
         const {
           data: { session },
@@ -90,9 +71,9 @@ export default function NewPromotionFormPage() {
 
         const userEmail = session.user.email || "";
 
-        // Fetch current user's data
+        // Fetch current user (student)
         const { data: userData } = await (supabase.from("users") as any)
-          .select("email, role, full_name, department, section")
+          .select("*")
           .eq("email", userEmail)
           .single();
 
@@ -101,55 +82,72 @@ export default function NewPromotionFormPage() {
           return;
         }
 
-        const userRole = userData.role;
-
-        // Only faculty can create promotion forms
-        if (userRole !== "faculty") {
+        // Check role access - only students
+        if (userData.role !== "student") {
           router.replace("/admissions");
           return;
         }
 
-        setCurrentUser({
+        setStudent({
           email: userData.email,
-          role: userData.role,
           full_name: userData.full_name,
-          department: userData.department || null,
-          section: userData.section || null,
+          employee_id: userData.employee_id || null,
+          department: userData.department,
+          section: userData.section,
+          current_year: userData.current_year || 1,
+          current_semester: userData.current_semester || 1,
+          phone: userData.phone || null,
         });
 
-        // Fetch students from the same section and department
-        const { data: studentsData } = await (supabase.from("users") as any)
-          .select("email, full_name, department, section, current_year, current_semester, employee_id")
-          .eq("role", "student")
+        // Pre-fill form fields
+        setPrnNo(userData.employee_id || "");
+        setProgram(userData.department || "");
+        setMobile1(userData.phone || "");
+
+        // Auto-select eligible year
+        const nextYear = (userData.current_year || 1) + 1;
+        if (nextYear === 2) setEligibleForYear("II Year");
+        else if (nextYear === 3) setEligibleForYear("III Year");
+        else if (nextYear === 4) setEligibleForYear("IV Year");
+
+        // Check if open season exists for this student's department and section
+        const { data: seasonData } = await (supabase.from("admission_seasons") as any)
+          .select("*")
           .eq("department", userData.department)
           .eq("section", userData.section)
-          .order("full_name", { ascending: true });
+          .eq("status", "open")
+          .single();
 
-        setStudents((studentsData ?? []) as Student[]);
+        if (!seasonData) {
+          setNoSeasonMessage(true);
+          setLoading(false);
+          return;
+        }
+
+        setSeason(seasonData as AdmissionSeason);
+
+        // Check if student already submitted a form for current semester
+        const { data: existingForm } = await (supabase.from("admission_forms") as any)
+          .select("*")
+          .eq("student_email", userEmail)
+          .eq("form_type", "promotion")
+          .eq("current_semester", userData.current_semester)
+          .single();
+
+        if (existingForm) {
+          router.replace(`/admissions/promote/${existingForm.id}`);
+          return;
+        }
+
         setLoading(false);
       } catch (err) {
-        console.error("Auth check error:", err);
+        console.error("Fetch error:", err);
         router.push("/login");
       }
     };
 
-    checkAuth();
+    fetchData();
   }, [router]);
-
-  const handleStudentSelect = (studentEmail: string) => {
-    setSelectedStudentEmail(studentEmail);
-    const student = students.find((s) => s.email === studentEmail);
-    
-    if (student) {
-      setSelectedStudentData(student);
-      setFullName(student.full_name);
-      setEmail(student.email);
-      setPrnNo(student.employee_id || "");
-      setProgram(student.department);
-    } else {
-      setSelectedStudentData(null);
-    }
-  };
 
   const handleAddDocument = () => {
     setDocuments([...documents, { id: crypto.randomUUID(), file: null, label: "" }]);
@@ -173,40 +171,17 @@ export default function NewPromotionFormPage() {
     );
   };
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const isFormValid = () => {
+    const hasAtLeastOneDocument = documents.some((doc) => doc.file !== null && doc.label.trim() !== "");
+    const hasSignature = studentSignature !== null;
+    return hasAtLeastOneDocument && hasSignature;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
 
-    // Validation
-    if (!fullName.trim()) {
-      setError("Full Name is required.");
-      return;
-    }
-    if (!prnNo.trim()) {
-      setError("PRN No. is required.");
-      return;
-    }
-    if (!email.trim()) {
-      setError("Email ID is required.");
-      return;
-    }
-    if (!eligibleForYear) {
-      setError("Please select Eligible for Year.");
-      return;
-    }
-    if (!resultStatus) {
-      setError("Please select Result Status.");
-      return;
-    }
-
-    const validDocuments = documents.filter((doc) => doc.file && doc.label.trim());
-    if (validDocuments.length === 0) {
-      setError("Please upload at least one document with a label.");
-      return;
-    }
-
-    if (!studentSignatureDataUrl) {
-      setError("Student signature is required.");
+    if (!student || !season || !isFormValid()) {
+      alert("Please complete all required fields, upload at least one document, and provide your signature.");
       return;
     }
 
@@ -214,47 +189,13 @@ export default function NewPromotionFormPage() {
 
     try {
       const supabase = createBrowserClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        setError("Session expired. Please log in again.");
-        setSubmitting(false);
-        return;
-      }
-
-      // Generate form ID
       const formId = crypto.randomUUID();
 
-      // Step 1: Upload student signature
-      const studentSigResponse = await fetch(studentSignatureDataUrl);
-      const studentSigBlob = await studentSigResponse.blob();
-      const studentSigPath = `admissions/${formId}/student-signature.png`;
-
-      const { error: studentSigError } = await supabase.storage
-        .from("signatures")
-        .upload(studentSigPath, studentSigBlob);
-
-      if (studentSigError) {
-        console.error("Student signature upload error:", studentSigError);
-        setError("Failed to upload student signature.");
-        setSubmitting(false);
-        return;
-      }
-
-      const { data: studentSigUrlData } = supabase.storage
-        .from("signatures")
-        .getPublicUrl(studentSigPath);
-
-      const studentSignatureUrl = studentSigUrlData.publicUrl;
-
-      // Step 2: Upload mark sheet files
-      const uploadedDocs: { label: string; file_url: string }[] = [];
-
-      for (const doc of validDocuments) {
-        if (doc.file) {
-          const fileName = `${Date.now()}_${doc.file.name}`;
+      // Upload documents
+      const documentUrls: Array<{ label: string; file_url: string }> = [];
+      for (const doc of documents) {
+        if (doc.file && doc.label.trim()) {
+          const fileName = `${Date.now()}-${doc.file.name}`;
           const filePath = `admissions/${formId}/${fileName}`;
 
           const { error: uploadError } = await supabase.storage
@@ -262,8 +203,8 @@ export default function NewPromotionFormPage() {
             .upload(filePath, doc.file);
 
           if (uploadError) {
-            console.error("File upload error:", uploadError);
-            setError(`Failed to upload file: ${doc.file.name}`);
+            console.error("Document upload error:", uploadError);
+            alert(`Failed to upload document: ${doc.label}`);
             setSubmitting(false);
             return;
           }
@@ -272,75 +213,102 @@ export default function NewPromotionFormPage() {
             .from("admission-docs")
             .getPublicUrl(filePath);
 
-          uploadedDocs.push({
-            label: doc.label.trim(),
-            file_url: urlData.publicUrl,
-          });
+          documentUrls.push({ label: doc.label, file_url: urlData.publicUrl });
         }
       }
 
-      // Step 3: Prepare remarks JSON
-      const remarksData = {
-        prn: prnNo.trim(),
-        program: program.trim(),
-        mobile1: mobile1.trim(),
-        mobile2: mobile2.trim(),
-        parent_name: parentName.trim(),
-        parent_mobile1: parentMobile1.trim(),
-        parent_mobile2: parentMobile2.trim(),
-        eligible_for_year: eligibleForYear,
-        result_status: resultStatus,
-        class_teacher_name: currentUser?.full_name,
-        class_teacher_remark: classTeacherRemark.trim(),
-        student_signature_url: studentSignatureUrl,
-        submission_date: new Date().toISOString(),
-      };
+      // Upload student signature
+      let studentSignatureUrl = "";
+      if (studentSignature) {
+        const signatureBlob = await fetch(studentSignature).then((res) => res.blob());
+        const signaturePath = `admissions/${formId}/student-signature.png`;
 
-      // Step 4: Insert into admission_forms
+        const { error: sigError } = await supabase.storage
+          .from("signatures")
+          .upload(signaturePath, signatureBlob);
+
+        if (sigError) {
+          console.error("Signature upload error:", sigError);
+          alert("Failed to upload signature");
+          setSubmitting(false);
+          return;
+        }
+
+        const { data: sigUrlData } = supabase.storage
+          .from("signatures")
+          .getPublicUrl(signaturePath);
+
+        studentSignatureUrl = sigUrlData.publicUrl;
+      }
+
+      // Fetch faculty (class teacher) for step 1
+      const { data: facultyData } = await (supabase.from("users") as any)
+        .select("email, full_name")
+        .eq("role", "faculty")
+        .eq("section", student.section)
+        .eq("department", student.department)
+        .limit(1)
+        .single();
+
+      const facultyEmail = facultyData?.email || null;
+
+      // Insert admission form
       const { error: formError } = await (supabase.from("admission_forms") as any).insert({
         id: formId,
         form_type: "promotion",
-        student_email: email.trim(),
-        student_name: fullName.trim(),
-        department: currentUser?.department,
-        section: currentUser?.section,
-        current_year: selectedStudentData?.current_year || null,
-        current_semester: selectedStudentData?.current_semester || null,
-        target_semester: (selectedStudentData?.current_semester || 0) + 1,
+        student_email: student.email,
+        student_name: student.full_name,
+        department: student.department,
+        section: student.section,
+        current_year: student.current_year,
+        current_semester: student.current_semester,
+        target_semester: season.target_semester,
         status: "in_progress",
-        created_by_email: currentUser?.email,
-        remarks: JSON.stringify(remarksData),
+        created_by_email: student.email,
+        remarks: JSON.stringify({
+          prn: prnNo,
+          program: program,
+          mobile1: mobile1,
+          mobile2: mobile2,
+          parent_name: parentName,
+          parent_mobile1: parentMobile1,
+          parent_mobile2: parentMobile2,
+          eligible_for_year: eligibleForYear,
+          result_status: resultStatus,
+          student_signature_url: studentSignatureUrl,
+          submission_date: new Date().toISOString(),
+          season_id: season.id,
+          academic_year: season.academic_year,
+        }),
       });
 
       if (formError) {
         console.error("Form insert error:", formError);
-        setError("Failed to create admission form.");
+        alert("Failed to submit form");
         setSubmitting(false);
         return;
       }
 
-      // Step 5: Insert documents
-      for (const uploadedDoc of uploadedDocs) {
-        const { error: docError } = await (supabase.from("admission_documents") as any).insert({
-          form_id: formId,
-          label: uploadedDoc.label,
-          file_url: uploadedDoc.file_url,
-          uploaded_by_email: currentUser?.email,
-        });
+      // Insert documents
+      const documentInserts = documentUrls.map((doc) => ({
+        form_id: formId,
+        label: doc.label,
+        file_url: doc.file_url,
+        uploaded_by_email: student.email,
+      }));
 
-        if (docError) {
-          console.error("Document insert error:", docError);
-        }
+      if (documentInserts.length > 0) {
+        await (supabase.from("admission_documents") as any).insert(documentInserts);
       }
 
-      // Step 6: Insert admission steps
+      // Insert 5 steps
       const steps = [
         {
           form_id: formId,
           step_order: 1,
           step_name: "Class Teacher Eligibility Sign",
           required_role: "faculty",
-          assigned_to_email: currentUser?.email,
+          assigned_to_email: facultyEmail,
           status: "pending",
         },
         {
@@ -373,20 +341,13 @@ export default function NewPromotionFormPage() {
         },
       ];
 
-      const { error: stepsError } = await (supabase.from("admission_steps") as any).insert(steps);
+      await (supabase.from("admission_steps") as any).insert(steps);
 
-      if (stepsError) {
-        console.error("Steps insert error:", stepsError);
-        setError("Failed to create workflow steps.");
-        setSubmitting(false);
-        return;
-      }
-
-      // Success - redirect to view page
+      // Redirect to form detail page
       router.push(`/admissions/promote/${formId}`);
     } catch (err) {
       console.error("Submit error:", err);
-      setError("An unexpected error occurred.");
+      alert("An error occurred while submitting the form");
       setSubmitting(false);
     }
   };
@@ -399,490 +360,388 @@ export default function NewPromotionFormPage() {
     );
   }
 
-  if (!currentUser) {
+  if (!student) {
     return null;
+  }
+
+  if (noSeasonMessage) {
+    return (
+      <div className="min-h-screen bg-college-bg">
+        <Navbar userEmail={student.email} userRole="student" />
+        <main className="max-w-4xl mx-auto px-6 py-16">
+          <div className="card text-center py-12">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-16 w-16 text-gray-300 mx-auto mb-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <h2 className="text-xl font-semibold text-college-accent font-poppins mb-2">
+              Admissions are not open for your section yet.
+            </h2>
+            <p className="text-gray-500 font-poppins">
+              Please wait for your department to open the admission form.
+            </p>
+          </div>
+        </main>
+        <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
+          © MGM University SOET | EduSphere AI
+        </footer>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-college-bg">
-      <Navbar userEmail={currentUser.email} userRole={currentUser.role} />
+      <Navbar userEmail={student.email} userRole="student" />
 
       <main className="max-w-4xl mx-auto px-6 py-8">
-        {/* Back Link */}
-        <Link
-          href="/admissions"
-          className="text-college-secondary text-sm font-poppins mb-4 inline-block hover:underline"
-        >
-          ← Back to Admissions
-        </Link>
-
         {/* Page Header */}
         <div className="mb-6">
-          <h1 className="page-heading">Regular Admission Form — Semester Promotion</h1>
+          <h1 className="page-heading">
+            Regular Admission Form — Academic Year {season?.academic_year}
+          </h1>
           <p className="text-sm text-gray-500 font-poppins mt-1">
-            MGM University School of Engineering & Technology
+            Semester Promotion — {student.department}, Section {student.section}
           </p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* SECTION 1: STUDENT DETAILS */}
+          {/* Section 1: Student Details */}
           <div className="card">
-            <h2 className="text-xl font-semibold text-college-accent font-poppins mb-4">
+            <h2 className="text-lg font-semibold text-college-accent font-poppins mb-4">
               1. Student Details
             </h2>
 
-            <div className="space-y-4">
-              {/* Select Existing Student Dropdown */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="selectStudent" className="label">
-                  Select Existing Student (Auto-fill)
-                </label>
-                <select
-                  id="selectStudent"
-                  value={selectedStudentEmail}
-                  onChange={(e) => handleStudentSelect(e.target.value)}
-                  disabled={submitting}
-                  className="input-field"
-                >
-                  <option value="">-- Select a student to auto-fill --</option>
-                  {students.map((student) => (
-                    <option key={student.email} value={student.email}>
-                      {student.full_name} ({student.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="fullName" className="label">
-                    Full Name of Student <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="fullName"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    disabled={submitting}
-                    className="input-field"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="prnNo" className="label">
-                    PRN No. <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="prnNo"
-                    value={prnNo}
-                    onChange={(e) => setPrnNo(e.target.value)}
-                    disabled={submitting}
-                    className="input-field"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="program" className="label">
-                  Program
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Full Name *
                 </label>
                 <input
                   type="text"
-                  id="program"
-                  value={program}
-                  onChange={(e) => setProgram(e.target.value)}
-                  disabled={submitting}
-                  className="input-field"
-                  placeholder="e.g. B.Tech CSE (IoT)"
+                  value={student.full_name}
+                  readOnly
+                  className="input-field bg-gray-50"
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="mobile1" className="label">
-                    Mobile Number i
-                  </label>
-                  <input
-                    type="text"
-                    id="mobile1"
-                    value={mobile1}
-                    onChange={(e) => setMobile1(e.target.value)}
-                    disabled={submitting}
-                    className="input-field"
-                    placeholder="Student mobile number"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="mobile2" className="label">
-                    Mobile Number ii
-                  </label>
-                  <input
-                    type="text"
-                    id="mobile2"
-                    value={mobile2}
-                    onChange={(e) => setMobile2(e.target.value)}
-                    disabled={submitting}
-                    className="input-field"
-                    placeholder="Alternate mobile number"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  PRN No.
+                </label>
+                <input
+                  type="text"
+                  value={prnNo}
+                  onChange={(e) => setPrnNo(e.target.value)}
+                  className="input-field"
+                  readOnly={!!student.employee_id}
+                />
               </div>
 
               <div>
-                <label htmlFor="email" className="label">
-                  Email ID <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Program *
                 </label>
                 <input
-                  type="email"
-                  id="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={submitting}
+                  type="text"
+                  value={program}
+                  onChange={(e) => setProgram(e.target.value)}
                   className="input-field"
                   required
                 />
               </div>
-            </div>
-          </div>
 
-          {/* SECTION 2: PARENTS DETAILS */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-college-accent font-poppins mb-4">
-              2. Parents Details
-            </h2>
-
-            <div className="space-y-4">
               <div>
-                <label htmlFor="parentName" className="label">
-                  Name of Parents
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Mobile Number i *
                 </label>
                 <input
-                  type="text"
-                  id="parentName"
-                  value={parentName}
-                  onChange={(e) => setParentName(e.target.value)}
-                  disabled={submitting}
+                  type="tel"
+                  value={mobile1}
+                  onChange={(e) => setMobile1(e.target.value)}
+                  className="input-field"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Mobile Number ii
+                </label>
+                <input
+                  type="tel"
+                  value={mobile2}
+                  onChange={(e) => setMobile2(e.target.value)}
                   className="input-field"
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="parentMobile1" className="label">
-                    Parents Mobile Number i
-                  </label>
-                  <input
-                    type="text"
-                    id="parentMobile1"
-                    value={parentMobile1}
-                    onChange={(e) => setParentMobile1(e.target.value)}
-                    disabled={submitting}
-                    className="input-field"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="parentMobile2" className="label">
-                    Parents Mobile Number ii
-                  </label>
-                  <input
-                    type="text"
-                    id="parentMobile2"
-                    value={parentMobile2}
-                    onChange={(e) => setParentMobile2(e.target.value)}
-                    disabled={submitting}
-                    className="input-field"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Email ID *
+                </label>
+                <input
+                  type="email"
+                  value={student.email}
+                  readOnly
+                  className="input-field bg-gray-50"
+                />
               </div>
             </div>
           </div>
 
-          {/* SECTION 3: ACADEMIC ELIGIBILITY */}
+          {/* Section 2: Parents Details */}
           <div className="card">
-            <h2 className="text-xl font-semibold text-college-accent font-poppins mb-4">
+            <h2 className="text-lg font-semibold text-college-accent font-poppins mb-4">
+              2. Parents Details
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Name of Parents *
+                </label>
+                <input
+                  type="text"
+                  value={parentName}
+                  onChange={(e) => setParentName(e.target.value)}
+                  className="input-field"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Parents Mobile Number i *
+                </label>
+                <input
+                  type="tel"
+                  value={parentMobile1}
+                  onChange={(e) => setParentMobile1(e.target.value)}
+                  className="input-field"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                  Parents Mobile Number ii
+                </label>
+                <input
+                  type="tel"
+                  value={parentMobile2}
+                  onChange={(e) => setParentMobile2(e.target.value)}
+                  className="input-field"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Academic Eligibility */}
+          <div className="card">
+            <h2 className="text-lg font-semibold text-college-accent font-poppins mb-2">
               3. Academic Eligibility
             </h2>
-            <p className="text-sm text-gray-500 font-poppins mb-4">
-              (To be filled by Class Teacher & In-HoD)
+            <p className="text-xs text-gray-500 font-poppins mb-4">
+              (To be verified by Class Teacher & In-HoD)
             </p>
 
-            <div className="space-y-6">
-              {/* Eligible for Year */}
+            <div className="space-y-4">
               <div>
-                <label className="label">
-                  Eligible for Next Year <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-gray-700 mb-2 font-poppins">
+                  Eligible for Next Year *
                 </label>
-                <div className="flex gap-6 mt-2">
+                <div className="flex gap-4">
                   <label className="flex items-center gap-2 font-poppins text-sm">
                     <input
                       type="radio"
-                      name="eligibleForYear"
                       value="II Year"
                       checked={eligibleForYear === "II Year"}
                       onChange={(e) => setEligibleForYear(e.target.value)}
-                      disabled={submitting}
-                      className="w-4 h-4"
+                      required
                     />
                     II Year
                   </label>
                   <label className="flex items-center gap-2 font-poppins text-sm">
                     <input
                       type="radio"
-                      name="eligibleForYear"
                       value="III Year"
                       checked={eligibleForYear === "III Year"}
                       onChange={(e) => setEligibleForYear(e.target.value)}
-                      disabled={submitting}
-                      className="w-4 h-4"
+                      required
                     />
                     III Year
                   </label>
                   <label className="flex items-center gap-2 font-poppins text-sm">
                     <input
                       type="radio"
-                      name="eligibleForYear"
                       value="IV Year"
                       checked={eligibleForYear === "IV Year"}
                       onChange={(e) => setEligibleForYear(e.target.value)}
-                      disabled={submitting}
-                      className="w-4 h-4"
+                      required
                     />
                     IV Year
                   </label>
                 </div>
               </div>
 
-              {/* Result Status */}
               <div>
-                <label className="label">
-                  Result Status <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-gray-700 mb-2 font-poppins">
+                  Result Status *
                 </label>
-                <div className="flex gap-6 mt-2">
+                <div className="flex gap-4">
                   <label className="flex items-center gap-2 font-poppins text-sm">
                     <input
                       type="radio"
-                      name="resultStatus"
                       value="Pass"
                       checked={resultStatus === "Pass"}
                       onChange={(e) => setResultStatus(e.target.value)}
-                      disabled={submitting}
-                      className="w-4 h-4"
+                      required
                     />
                     Pass
                   </label>
                   <label className="flex items-center gap-2 font-poppins text-sm">
                     <input
                       type="radio"
-                      name="resultStatus"
                       value="ATKT"
                       checked={resultStatus === "ATKT"}
                       onChange={(e) => setResultStatus(e.target.value)}
-                      disabled={submitting}
-                      className="w-4 h-4"
+                      required
                     />
                     ATKT
                   </label>
                   <label className="flex items-center gap-2 font-poppins text-sm">
                     <input
                       type="radio"
-                      name="resultStatus"
                       value="Fail"
                       checked={resultStatus === "Fail"}
                       onChange={(e) => setResultStatus(e.target.value)}
-                      disabled={submitting}
-                      className="w-4 h-4"
+                      required
                     />
                     Fail
                   </label>
                 </div>
               </div>
 
-              {/* Class Teacher Block */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <h3 className="text-sm font-semibold text-college-accent font-poppins mb-3">
-                  Class Teacher
-                </h3>
-                <div className="space-y-2 text-sm font-poppins">
-                  <p>
-                    <strong>Name:</strong> {currentUser.full_name}
-                  </p>
-                  <p>
-                    <strong>Date:</strong> {todayFormatted}
-                  </p>
-                  <div>
-                    <label className="label">Remark (Optional)</label>
-                    <textarea
-                      value={classTeacherRemark}
-                      onChange={(e) => setClassTeacherRemark(e.target.value)}
-                      disabled={submitting}
-                      className="input-field"
-                      rows={2}
-                      placeholder="Add any remarks..."
-                    />
-                  </div>
-                  <p className="text-xs text-gray-600 italic mt-2">
-                    Note: Your signature will be captured in the approval step
-                  </p>
-                </div>
-              </div>
-
-              {/* In-HoD Block - Placeholder */}
-              <div className="bg-gray-100 border border-gray-300 rounded-lg p-4">
-                <h3 className="text-sm font-semibold text-gray-600 font-poppins mb-3">
-                  In-HoD (To be filled by HOD)
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-200 h-16 rounded flex items-center justify-center text-xs text-gray-500 font-poppins">
-                    Signature
-                  </div>
-                  <div className="bg-gray-200 h-16 rounded flex items-center justify-center text-xs text-gray-500 font-poppins">
-                    Date
-                  </div>
-                  <div className="bg-gray-200 h-16 rounded flex items-center justify-center text-xs text-gray-500 font-poppins">
-                    Name
-                  </div>
-                  <div className="bg-gray-200 h-16 rounded flex items-center justify-center text-xs text-gray-500 font-poppins">
-                    Remark
-                  </div>
-                </div>
+              <div className="bg-gray-100 border border-gray-300 rounded-lg p-3">
+                <p className="text-xs text-gray-600 font-poppins">
+                  ℹ️ Class Teacher and In-HoD signatures will be added during the approval process.
+                </p>
               </div>
             </div>
           </div>
 
-          {/* SECTION 4: MARK SHEETS UPLOAD */}
+          {/* Section 4: Documents Upload */}
           <div className="card">
-            <h2 className="text-xl font-semibold text-college-accent font-poppins mb-4">
-              4. Previous Semester Documents
+            <h2 className="text-lg font-semibold text-college-accent font-poppins mb-4">
+              4. Previous Semester Mark Sheets
             </h2>
 
             <div className="space-y-4">
               {documents.map((doc, index) => (
-                <div
-                  key={doc.id}
-                  className="bg-college-bg border border-college-peach rounded-lg p-4 space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-college-text font-poppins">
-                      Document {index + 1}
-                    </p>
-                    {documents.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDocument(doc.id)}
-                        disabled={submitting}
-                        className="text-red-500 text-sm font-poppins hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    )}
+                <div key={doc.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                        Document Label *
+                      </label>
+                      <input
+                        type="text"
+                        value={doc.label}
+                        onChange={(e) => handleDocumentLabelChange(doc.id, e.target.value)}
+                        placeholder="e.g. Semester 3 Marksheet"
+                        className="input-field"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                        File (PDF, JPG, PNG) *
+                      </label>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) =>
+                          handleDocumentFileChange(doc.id, e.target.files?.[0] || null)
+                        }
+                        className="input-field"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="label">Label</label>
-                    <input
-                      type="text"
-                      value={doc.label}
-                      onChange={(e) => handleDocumentLabelChange(doc.id, e.target.value)}
-                      disabled={submitting}
-                      className="input-field"
-                      placeholder="e.g. Semester 3 Marksheet"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="label">File (PDF, JPG, PNG)</label>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={(e) =>
-                        handleDocumentFileChange(doc.id, e.target.files?.[0] || null)
-                      }
-                      disabled={submitting}
-                      className="input-field"
-                    />
-                    {doc.file && (
-                      <p className="text-xs text-gray-500 font-poppins mt-1">
-                        Selected: {doc.file.name}
-                      </p>
-                    )}
-                  </div>
+                  {documents.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDocument(doc.id)}
+                      className="mt-2 text-red-500 text-xs font-poppins hover:underline"
+                    >
+                      Remove Document
+                    </button>
+                  )}
                 </div>
               ))}
 
               <button
                 type="button"
                 onClick={handleAddDocument}
-                disabled={submitting}
-                className="btn-secondary"
+                className="text-college-secondary text-sm font-poppins hover:underline"
               >
                 + Add Another Document
               </button>
             </div>
           </div>
 
-          {/* SECTION 5: STUDENT DECLARATION */}
+          {/* Section 5: Declaration */}
           <div className="card">
-            <h2 className="text-xl font-semibold text-college-accent font-poppins mb-4">
+            <h2 className="text-lg font-semibold text-college-accent font-poppins mb-4">
               5. Declaration by Student
             </h2>
 
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm font-poppins text-college-text leading-relaxed">
-                  I hereby declare that the information given above is true and correct. I
-                  shall abide by the rules and regulations of MGM University.
-                </p>
-              </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+              <p className="text-sm text-gray-700 font-poppins">
+                I hereby declare that the information given above is true and correct. I shall
+                abide by the rules and regulations of MGM University.
+              </p>
+            </div>
 
-              <div>
-                <label className="label">
-                  Student Signature <span className="text-red-500">*</span>
-                </label>
-                <SignaturePad
-                  onSave={(dataUrl) => setStudentSignatureDataUrl(dataUrl)}
-                  disabled={submitting}
-                />
-              </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2 font-poppins">
+                Student Signature *
+              </label>
+              <SignaturePad onSave={setStudentSignature} />
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="label">Date</label>
-                  <input
-                    type="text"
-                    value={todayFormatted}
-                    disabled
-                    className="input-field bg-gray-100"
-                  />
-                </div>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
+                Date
+              </label>
+              <input
+                type="text"
+                value={new Date().toLocaleDateString("en-GB")}
+                readOnly
+                className="input-field bg-gray-50 max-w-xs"
+              />
             </div>
           </div>
 
-          {/* Error Message */}
-          {error && (
-            <div className="text-red-500 text-sm text-center font-poppins bg-red-50 border border-red-200 rounded-lg p-3">
-              {error}
-            </div>
-          )}
-
           {/* Submit Button */}
-          <div className="flex gap-4">
+          <div className="flex justify-end">
             <button
               type="submit"
-              disabled={submitting}
-              className="btn-primary flex-1"
+              disabled={!isFormValid() || submitting}
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? "Submitting Form..." : "Submit Promotion Form"}
+              {submitting ? "Submitting..." : "Submit Admission Form"}
             </button>
-            <Link href="/admissions" className="btn-secondary">
-              Cancel
-            </Link>
           </div>
         </form>
       </main>

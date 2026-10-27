@@ -536,6 +536,16 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             </Link>
           )}
 
+          {/* Admission Seasons (for principal, hod, admission_incharge) */}
+          {(userRole === "principal" || userRole === "hod" || userRole === "admission_incharge") && (
+            <Link
+              href="/admissions/seasons"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+            >
+              Admission Seasons
+            </Link>
+          )}
+
         </div>
       </div>
     </div>

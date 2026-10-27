@@ -6,40 +6,52 @@ import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 
+interface CurrentUser {
+  email: string;
+  role: string;
+  full_name: string;
+  department: string | null;
+  section: string | null;
+}
+
 interface AdmissionForm {
   id: string;
   form_type: string;
   student_email: string;
   student_name: string;
   department: string;
-  section: string | null;
-  current_year: number | null;
-  current_semester: number | null;
-  target_semester: number | null;
+  section: string;
+  current_year: number;
+  current_semester: number;
+  target_semester: number;
   status: string;
-  created_by_email: string;
   created_at: string;
+  remarks: any;
 }
 
-interface CurrentUser {
-  email: string;
-  role: string;
-  department: string | null;
+interface AdmissionSeason {
+  id: string;
+  department: string;
+  section: string;
+  academic_year: string;
+  target_semester: number;
+  status: string;
 }
 
 export default function AdmissionsPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [promotionForms, setPromotionForms] = useState<AdmissionForm[]>([]);
-  const [freshForms, setFreshForms] = useState<AdmissionForm[]>([]);
-  const [activeTab, setActiveTab] = useState<"promotion" | "fresh">("promotion");
   const [loading, setLoading] = useState(true);
+  const [forms, setForms] = useState<AdmissionForm[]>([]);
+  const [openSeason, setOpenSeason] = useState<AdmissionSeason | null>(null);
+  const [activeTab, setActiveTab] = useState<"promotion" | "fresh">("promotion");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("");
+  const [departments, setDepartments] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-
         const supabase = createBrowserClient();
         const {
           data: { session },
@@ -52,9 +64,9 @@ export default function AdmissionsPage() {
 
         const userEmail = session.user.email || "";
 
-        // Fetch current user's data
+        // Fetch current user
         const { data: userData } = await (supabase.from("users") as any)
-          .select("email, role, department")
+          .select("*")
           .eq("email", userEmail)
           .single();
 
@@ -63,25 +75,28 @@ export default function AdmissionsPage() {
           return;
         }
 
-        const userRole = userData.role;
-
-        // Students redirect to /assignments
-        if (userRole === "student") {
-          router.replace("/assignments");
-          return;
-        }
-
         setCurrentUser({
           email: userData.email,
           role: userData.role,
+          full_name: userData.full_name,
           department: userData.department || null,
+          section: userData.section || null,
         });
 
-        // Fetch promotion forms
-        await fetchPromotionForms(supabase, userRole, userData.department, userEmail);
+        // Fetch forms based on role
+        await fetchForms(supabase, userData.role, userData.email, userData.department, userData.section);
 
-        // Fetch fresh admission forms
-        await fetchFreshForms(supabase, userRole, userData.department);
+        // For students, check for open season
+        if (userData.role === "student") {
+          const { data: seasonData } = await (supabase.from("admission_seasons") as any)
+            .select("*")
+            .eq("department", userData.department)
+            .eq("section", userData.section)
+            .eq("status", "open")
+            .single();
+
+          setOpenSeason(seasonData || null);
+        }
 
         setLoading(false);
       } catch (err) {
@@ -93,92 +108,99 @@ export default function AdmissionsPage() {
     fetchData();
   }, [router]);
 
-  const fetchPromotionForms = async (
+  const fetchForms = async (
     supabase: any,
     role: string,
+    email: string,
     department: string | null,
-    email: string
+    section: string | null
   ) => {
-    try {
-      let query = (supabase.from("admission_forms") as any)
-        .select("*")
-        .eq("form_type", "promotion");
+    let query = (supabase.from("admission_forms") as any).select("*");
 
-      // Apply role-based filters
-      if (role === "faculty") {
-        query = query.eq("created_by_email", email);
-      } else if (role === "hod") {
-        query = query.eq("department", department);
-      }
-      // accountant, librarian, admin see all
-
-      query = query.order("created_at", { ascending: false });
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      setPromotionForms((data ?? []) as AdmissionForm[]);
-    } catch (err) {
-      console.error("Fetch promotion forms error:", err);
-      setPromotionForms([]);
+    if (role === "student") {
+      query = query.eq("form_type", "promotion").eq("student_email", email);
+    } else if (role === "faculty") {
+      query = query
+        .eq("form_type", "promotion")
+        .eq("department", department)
+        .eq("section", section);
+    } else if (role === "hod") {
+      query = query.eq("department", department);
+    } else if (role === "accountant" || role === "librarian") {
+      query = query.eq("status", "in_progress");
+    } else if (role === "principal" || role === "admin") {
+      // Show all forms
+    } else if (role === "admission_incharge") {
+      // Show all forms
     }
-  };
 
-  const fetchFreshForms = async (
-    supabase: any,
-    role: string,
-    department: string | null
-  ) => {
-    try {
-      let query = (supabase.from("admission_forms") as any)
-        .select("*")
-        .eq("form_type", "fresh");
+    query = query.order("created_at", { ascending: false });
 
-      // Apply role-based filters
-      if (role === "accountant") {
-        query = query.eq("status", "in_progress");
-      } else if (role === "hod") {
-        query = query.eq("department", department);
-      }
-      // admission_incharge, admin see all
+    const { data } = await query;
+    const formData = (data || []) as AdmissionForm[];
+    setForms(formData);
 
-      query = query.order("created_at", { ascending: false });
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      setFreshForms((data ?? []) as AdmissionForm[]);
-    } catch (err) {
-      console.error("Fetch fresh forms error:", err);
-      setFreshForms([]);
-    }
-  };
-
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case "draft":
-        return "bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full text-xs font-semibold";
-      case "in_progress":
-        return "bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold";
-      case "completed":
-        return "bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold";
-      case "rejected":
-        return "bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-semibold";
-      default:
-        return "bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full text-xs font-semibold";
-    }
+    // Extract unique departments for filter
+    const uniqueDepts = Array.from(new Set(formData.map((f) => f.department)));
+    setDepartments(uniqueDepts);
   };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
   };
+
+  const getStatusBadgeClass = (status: string) => {
+    switch (status) {
+      case "in_progress":
+        return "bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold";
+      case "completed":
+        return "bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold";
+      case "rejected":
+        return "bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-semibold";
+      case "draft":
+        return "bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-semibold";
+      default:
+        return "bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-semibold";
+    }
+  };
+
+  const getPRN = (remarks: any) => {
+    try {
+      const parsed = typeof remarks === "string" ? JSON.parse(remarks) : remarks;
+      return parsed?.prn || "—";
+    } catch {
+      return "—";
+    }
+  };
+
+  // Filter forms based on active tab and department filter
+  const getFilteredForms = () => {
+    let filtered = forms;
+
+    // Filter by tab
+    if (currentUser?.role === "hod" || currentUser?.role === "principal" || currentUser?.role === "admin" || currentUser?.role === "admission_incharge") {
+      filtered = forms.filter((f) => f.form_type === activeTab);
+    }
+
+    // Filter by department
+    if (departmentFilter && (currentUser?.role === "principal" || currentUser?.role === "admin")) {
+      filtered = filtered.filter((f) => f.department === departmentFilter);
+    }
+
+    return filtered;
+  };
+
+  const filteredForms = getFilteredForms();
+
+  // Calculate counts
+  const totalCount = filteredForms.length;
+  const pendingCount = filteredForms.filter((f) => f.status === "in_progress").length;
+  const completedCount = filteredForms.filter((f) => f.status === "completed").length;
+  const rejectedCount = filteredForms.filter((f) => f.status === "rejected").length;
 
   if (loading) {
     return (
@@ -192,123 +214,153 @@ export default function AdmissionsPage() {
     return null;
   }
 
-  const canCreatePromotion = currentUser.role === "faculty";
-  const canCreateFresh = currentUser.role === "admission_incharge";
+  // STUDENT VIEW
+  if (currentUser.role === "student") {
+    const myForm = forms[0] || null;
 
-  return (
-    <div className="min-h-screen bg-college-bg">
-      <Navbar userEmail={currentUser.email} userRole={currentUser.role} />
+    return (
+      <div className="min-h-screen bg-college-bg">
+        <Navbar userEmail={currentUser.email} userRole={currentUser.role} />
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Page Header */}
-        <div className="mb-6">
-          <h1 className="page-heading">Admissions</h1>
-          <p className="text-sm text-gray-500 font-poppins mt-1">
-            Manage semester promotions and fresh admissions
-          </p>
-        </div>
+        <main className="max-w-4xl mx-auto px-6 py-8">
+          <div className="mb-6">
+            <h1 className="page-heading">My Admission Form</h1>
+          </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-4 mb-6 border-b border-college-peach">
-          <button
-            onClick={() => setActiveTab("promotion")}
-            className={`pb-3 px-2 font-poppins text-sm font-medium transition-colors ${
-              activeTab === "promotion"
-                ? "text-college-accent border-b-2 border-college-accent"
-                : "text-gray-400 hover:text-college-secondary"
-            }`}
-          >
-            Semester Promotion
-          </button>
-          <button
-            onClick={() => setActiveTab("fresh")}
-            className={`pb-3 px-2 font-poppins text-sm font-medium transition-colors ${
-              activeTab === "fresh"
-                ? "text-college-accent border-b-2 border-college-accent"
-                : "text-gray-400 hover:text-college-secondary"
-            }`}
-          >
-            Fresh Admissions
-          </button>
-        </div>
-
-        {/* SEMESTER PROMOTION TAB */}
-        {activeTab === "promotion" && (
-          <div>
-            {/* Action Button */}
-            {canCreatePromotion && (
-              <div className="flex justify-end mb-4">
-                <Link href="/admissions/promote/new" className="btn-primary">
-                  + New Promotion Form
-                </Link>
+          {myForm ? (
+            <div className="card">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-college-accent font-poppins">
+                    Semester Promotion
+                  </h3>
+                  <p className="text-sm text-gray-500 font-poppins mt-1">
+                    {myForm.department} • Section {myForm.section}
+                  </p>
+                  <p className="text-sm text-gray-500 font-poppins">
+                    Current Semester: {myForm.current_semester} → Target Semester: {myForm.target_semester}
+                  </p>
+                </div>
+                <span className={getStatusBadgeClass(myForm.status)}>{myForm.status}</span>
               </div>
-            )}
 
-            {/* Table */}
-            {promotionForms.length === 0 ? (
-              <div className="card text-center py-12">
-                <p className="text-gray-400 font-poppins">
-                  No semester promotion forms found.
-                </p>
-              </div>
+              <p className="text-xs text-gray-500 font-poppins mb-4">
+                Submitted on {formatDate(myForm.created_at)}
+              </p>
+
+              <Link
+                href={`/admissions/promote/${myForm.id}`}
+                className="btn-primary inline-block"
+              >
+                View Form
+              </Link>
+            </div>
+          ) : (
+            <div>
+              {openSeason ? (
+                <div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                    <p className="text-green-700 font-poppins text-sm font-medium">
+                      ✅ Admissions are open for your section — Academic Year {openSeason.academic_year}
+                    </p>
+                  </div>
+                  <Link href="/admissions/promote/new" className="btn-primary inline-block">
+                    Fill Admission Form
+                  </Link>
+                </div>
+              ) : (
+                <div className="card text-center py-8">
+                  <p className="text-gray-500 font-poppins">
+                    Admissions are not open for your section yet.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+
+        <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
+          © MGM University SOET | EduSphere AI
+        </footer>
+      </div>
+    );
+  }
+
+  // FACULTY VIEW
+  if (currentUser.role === "faculty") {
+    return (
+      <div className="min-h-screen bg-college-bg">
+        <Navbar userEmail={currentUser.email} userRole={currentUser.role} />
+
+        <main className="max-w-7xl mx-auto px-6 py-8">
+          <div className="mb-6">
+            <h1 className="page-heading">My Students' Promotion Forms</h1>
+            <p className="text-sm text-gray-500 font-poppins mt-1">
+              {currentUser.department} • Section {currentUser.section}
+            </p>
+          </div>
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-college-secondary font-poppins">{totalCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Total</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-blue-600 font-poppins">{pendingCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-green-600 font-poppins">{completedCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Completed</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-red-600 font-poppins">{rejectedCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="card">
+            {forms.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6 font-poppins text-center">
+                No admission forms found.
+              </p>
             ) : (
-              <div className="card overflow-x-auto">
+              <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-college-peach">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Student Name
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Department
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Section
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Semester
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Status
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Created Date
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Action
-                      </th>
+                    <tr>
+                      <th className="table-header">Student Name</th>
+                      <th className="table-header">PRN</th>
+                      <th className="table-header">Semester</th>
+                      <th className="table-header">Status</th>
+                      <th className="table-header">Submitted Date</th>
+                      <th className="table-header">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {promotionForms.map((form) => (
-                      <tr
-                        key={form.id}
-                        className="border-b border-college-peach hover:bg-college-bg transition-colors"
-                      >
-                        <td className="py-3 px-4 text-sm text-college-text font-poppins">
+                    {forms.map((form) => (
+                      <tr key={form.id} className="table-row">
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                           {form.student_name}
                         </td>
-                        <td className="py-3 px-4 text-sm text-college-text font-poppins">
-                          {form.department}
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                          {getPRN(form.remarks)}
                         </td>
-                        <td className="py-3 px-4 text-sm text-college-text font-poppins">
-                          {form.section || "-"}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-college-text font-poppins">
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                           {form.current_semester} → {form.target_semester}
                         </td>
-                        <td className="py-3 px-4">
-                          <span className={getStatusBadgeClass(form.status)}>
-                            {form.status}
-                          </span>
+                        <td className="px-4 py-3">
+                          <span className={getStatusBadgeClass(form.status)}>{form.status}</span>
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-500 font-poppins">
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                           {formatDate(form.created_at)}
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="px-4 py-3">
                           <Link
                             href={`/admissions/promote/${form.id}`}
-                            className="text-college-secondary hover:text-college-accent text-sm font-poppins font-medium"
+                            className="text-college-secondary text-xs font-poppins font-semibold hover:underline"
                           >
                             View
                           </Link>
@@ -320,79 +372,154 @@ export default function AdmissionsPage() {
               </div>
             )}
           </div>
-        )}
+        </main>
 
-        {/* FRESH ADMISSIONS TAB */}
-        {activeTab === "fresh" && (
-          <div>
-            {/* Action Button */}
-            {canCreateFresh && (
-              <div className="flex justify-end mb-4">
-                <Link href="/admissions/fresh/new" className="btn-primary">
-                  + New Fresh Admission
-                </Link>
-              </div>
+        <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
+          © MGM University SOET | EduSphere AI
+        </footer>
+      </div>
+    );
+  }
+
+  // HOD, PRINCIPAL, ADMIN, ADMISSION_INCHARGE VIEW (with tabs)
+  if (["hod", "principal", "admin", "admission_incharge"].includes(currentUser.role)) {
+    const showTabs = true;
+    const showDepartmentFilter = currentUser.role === "principal" || currentUser.role === "admin";
+    const showNewFreshButton = currentUser.role === "admission_incharge" && activeTab === "fresh";
+
+    return (
+      <div className="min-h-screen bg-college-bg">
+        <Navbar userEmail={currentUser.email} userRole={currentUser.role} />
+
+        <main className="max-w-7xl mx-auto px-6 py-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="page-heading">Admissions Dashboard</h1>
+              {currentUser.role === "hod" && (
+                <p className="text-sm text-gray-500 font-poppins mt-1">{currentUser.department}</p>
+              )}
+            </div>
+            {showNewFreshButton && (
+              <Link href="/admissions/fresh/new" className="btn-primary">
+                + New Fresh Admission
+              </Link>
             )}
+          </div>
 
-            {/* Table */}
-            {freshForms.length === 0 ? (
-              <div className="card text-center py-12">
-                <p className="text-gray-400 font-poppins">
-                  No fresh admission forms found.
-                </p>
-              </div>
+          {/* Tabs */}
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setActiveTab("promotion")}
+              className={`px-4 py-2 rounded-lg font-poppins text-sm font-medium transition-colors ${
+                activeTab === "promotion"
+                  ? "bg-college-secondary text-white"
+                  : "bg-white text-college-text border border-college-peach hover:bg-college-peach"
+              }`}
+            >
+              Promotion Forms
+            </button>
+            <button
+              onClick={() => setActiveTab("fresh")}
+              className={`px-4 py-2 rounded-lg font-poppins text-sm font-medium transition-colors ${
+                activeTab === "fresh"
+                  ? "bg-college-secondary text-white"
+                  : "bg-white text-college-text border border-college-peach hover:bg-college-peach"
+              }`}
+            >
+              Fresh Admissions
+            </button>
+          </div>
+
+          {/* Department Filter */}
+          {showDepartmentFilter && departments.length > 0 && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2 font-poppins">
+                Filter by Department
+              </label>
+              <select
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+                className="input-field max-w-xs"
+              >
+                <option value="">All Departments</option>
+                {departments.map((dept) => (
+                  <option key={dept} value={dept}>
+                    {dept}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-college-secondary font-poppins">{totalCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Total</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-blue-600 font-poppins">{pendingCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-green-600 font-poppins">{completedCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Completed</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-red-600 font-poppins">{rejectedCount}</p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="card">
+            {filteredForms.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6 font-poppins text-center">
+                No admission forms found.
+              </p>
             ) : (
-              <div className="card overflow-x-auto">
+              <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-college-peach">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Student Name
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Student Email
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Department
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Status
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Created Date
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-college-text font-poppins">
-                        Action
-                      </th>
+                    <tr>
+                      <th className="table-header">Student Name</th>
+                      <th className="table-header">Department</th>
+                      <th className="table-header">Section</th>
+                      <th className="table-header">Semester</th>
+                      <th className="table-header">Status</th>
+                      <th className="table-header">Submitted Date</th>
+                      <th className="table-header">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {freshForms.map((form) => (
-                      <tr
-                        key={form.id}
-                        className="border-b border-college-peach hover:bg-college-bg transition-colors"
-                      >
-                        <td className="py-3 px-4 text-sm text-college-text font-poppins">
+                    {filteredForms.map((form) => (
+                      <tr key={form.id} className="table-row">
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                           {form.student_name}
                         </td>
-                        <td className="py-3 px-4 text-sm text-college-text font-poppins">
-                          {form.student_email}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-college-text font-poppins">
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                           {form.department}
                         </td>
-                        <td className="py-3 px-4">
-                          <span className={getStatusBadgeClass(form.status)}>
-                            {form.status}
-                          </span>
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                          {form.section}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-500 font-poppins">
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                          {form.current_semester} → {form.target_semester}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={getStatusBadgeClass(form.status)}>{form.status}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                           {formatDate(form.created_at)}
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="px-4 py-3">
                           <Link
-                            href={`/admissions/fresh/${form.id}`}
-                            className="text-college-secondary hover:text-college-accent text-sm font-poppins font-medium"
+                            href={
+                              form.form_type === "promotion"
+                                ? `/admissions/promote/${form.id}`
+                                : `/admissions/fresh/${form.id}`
+                            }
+                            className="text-college-secondary text-xs font-poppins font-semibold hover:underline"
                           >
                             View
                           </Link>
@@ -404,13 +531,88 @@ export default function AdmissionsPage() {
               </div>
             )}
           </div>
-        )}
-      </main>
+        </main>
 
-      {/* Footer */}
-      <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
-        © MGM University SOET | EduSphere AI
-      </footer>
-    </div>
-  );
+        <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
+          © MGM University SOET | EduSphere AI
+        </footer>
+      </div>
+    );
+  }
+
+  // ACCOUNTANT / LIBRARIAN VIEW
+  if (currentUser.role === "accountant" || currentUser.role === "librarian") {
+    return (
+      <div className="min-h-screen bg-college-bg">
+        <Navbar userEmail={currentUser.email} userRole={currentUser.role} />
+
+        <main className="max-w-7xl mx-auto px-6 py-8">
+          <div className="mb-6">
+            <h1 className="page-heading">Pending Admission Forms</h1>
+            <p className="text-sm text-gray-500 font-poppins mt-1">
+              Forms requiring your action
+            </p>
+          </div>
+
+          <div className="card">
+            {forms.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6 font-poppins text-center">
+                No pending admission forms.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className="table-header">Student Name</th>
+                      <th className="table-header">Department</th>
+                      <th className="table-header">Form Type</th>
+                      <th className="table-header">Status</th>
+                      <th className="table-header">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {forms.map((form) => (
+                      <tr key={form.id} className="table-row">
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                          {form.student_name}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                          {form.department}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins capitalize">
+                          {form.form_type}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={getStatusBadgeClass(form.status)}>{form.status}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Link
+                            href={
+                              form.form_type === "promotion"
+                                ? `/admissions/promote/${form.id}`
+                                : `/admissions/fresh/${form.id}`
+                            }
+                            className="text-college-secondary text-xs font-poppins font-semibold hover:underline"
+                          >
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </main>
+
+        <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
+          © MGM University SOET | EduSphere AI
+        </footer>
+      </div>
+    );
+  }
+
+  return null;
 }
