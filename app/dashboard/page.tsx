@@ -47,6 +47,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [recentNotices, setRecentNotices] = useState<any[]>([]);
+  const [pendingAdmissionsCount, setPendingAdmissionsCount] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -199,6 +200,47 @@ export default function DashboardPage() {
 
         setRecentNotices(notices || []);
 
+        // Fetch Pending Admissions Count
+        if (role && ['faculty', 'hod', 'accountant', 'librarian', 'admin', 'admission_incharge'].includes(role)) {
+          // Get all in-progress admission forms
+          const { data: inProgressForms } = await (supabase.from('admission_forms') as any)
+            .select('id')
+            .eq('status', 'in_progress');
+
+          if (inProgressForms && inProgressForms.length > 0) {
+            const formIds = inProgressForms.map((f: any) => f.id);
+
+            // Get all pending steps for these forms
+            const { data: pendingSteps } = await (supabase.from('admission_steps') as any)
+              .select('form_id, step_order, required_role')
+              .in('form_id', formIds)
+              .eq('status', 'pending')
+              .order('step_order', { ascending: true });
+
+            if (pendingSteps && pendingSteps.length > 0) {
+              // Group by form_id and find the lowest step_order for each form
+              const formStepMap: { [formId: string]: any } = {};
+              
+              for (const step of pendingSteps) {
+                if (!formStepMap[step.form_id] || step.step_order < formStepMap[step.form_id].step_order) {
+                  formStepMap[step.form_id] = step;
+                }
+              }
+
+              // Count forms where the active step matches current user's role
+              let count = 0;
+              for (const formId in formStepMap) {
+                const activeStep = formStepMap[formId];
+                if (activeStep.required_role === role) {
+                  count++;
+                }
+              }
+
+              setPendingAdmissionsCount(count);
+            }
+          }
+        }
+
         setLoading(false);
       } catch (err) {
         console.error("Dashboard error:", err);
@@ -302,7 +344,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
           {/* Total Documents */}
           <div className="card text-center">
             <p className="text-3xl font-bold text-college-secondary font-poppins">
@@ -335,6 +377,28 @@ export default function DashboardPage() {
               {rejectedCount}
             </p>
             <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
+          </div>
+
+          {/* Pending Admissions */}
+          <div className="card text-center">
+            <p className="text-3xl font-bold text-college-secondary font-poppins">
+              {pendingAdmissionsCount}
+            </p>
+            <p className="text-xs text-gray-500 font-poppins mt-1 mb-2">
+              Pending Admissions
+            </p>
+            {pendingAdmissionsCount > 0 ? (
+              <Link
+                href="/admissions"
+                className="inline-block bg-college-secondary text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-college-accent transition-colors"
+              >
+                Review Now
+              </Link>
+            ) : (
+              <p className="text-xs text-gray-400 font-poppins">
+                No pending admissions
+              </p>
+            )}
           </div>
         </div>
 

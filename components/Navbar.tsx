@@ -516,6 +516,26 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             </Link>
           )}
 
+          {/* Admissions (for faculty, hod, accountant, librarian, admission_incharge, admin) */}
+          {(userRole === "faculty" || userRole === "hod" || userRole === "accountant" || userRole === "librarian" || userRole === "admission_incharge" || userRole === "admin") && (
+            <Link
+              href="/admissions"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+            >
+              Admissions
+            </Link>
+          )}
+
+          {/* Installments (for admin, accountant only) */}
+          {(userRole === "admin" || userRole === "accountant") && (
+            <Link
+              href="/admissions/installments"
+              className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
+            >
+              Installments
+            </Link>
+          )}
+
         </div>
       </div>
     </div>

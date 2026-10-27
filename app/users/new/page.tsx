@@ -390,6 +390,9 @@ export default function CreateUserPage() {
                     {r.charAt(0).toUpperCase() + r.slice(1)}
                   </option>
                 ))}
+                <option value="accountant">Accountant</option>
+                <option value="librarian">Librarian</option>
+                <option value="admission_incharge">Admission Incharge</option>
               </select>
             </div>
 

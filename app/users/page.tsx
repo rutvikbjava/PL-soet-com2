@@ -421,6 +421,7 @@ export default function UsersPage() {
   const pendingUsers = users.filter((u) => u.status === "pending");
   const canManageUsers = currentUser?.role === "principal" || currentUser?.role === "admin";
   const showCreateButton = currentUser && ["faculty", "hod", "coe", "principal", "admin"].includes(currentUser.role);
+  const canViewSemester = currentUser && ["faculty", "hod", "admin", "admission_incharge"].includes(currentUser.role);
 
   if (loading) {
     return (
@@ -609,7 +610,7 @@ export default function UsersPage() {
                       <th className="table-header">Designation</th>
                       <th className="table-header">Status</th>
                       <th className="table-header">Created By</th>
-                      {canManageUsers && <th className="table-header">Actions</th>}
+                      {(canManageUsers || canViewSemester) && <th className="table-header">Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -640,26 +641,36 @@ export default function UsersPage() {
                         <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                           {user.created_by_email ?? "—"}
                         </td>
-                        {canManageUsers && (
+                        {(canManageUsers || canViewSemester) && (
                           <td className="px-4 py-3">
-                            {(user.status || "active") === "active" && user.id !== currentUser.id && (
-                              <button
-                                onClick={() => handleSuspend(user.id)}
-                                disabled={actionLoading === user.id}
-                                className="bg-orange-500 text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50"
-                              >
-                                {actionLoading === user.id ? "..." : "Suspend"}
-                              </button>
-                            )}
-                            {(user.status === "suspended" || user.status === "rejected") && (
-                              <button
-                                onClick={() => handleActivate(user.id)}
-                                disabled={actionLoading === user.id}
-                                className="bg-green-500 text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-green-600 transition-colors disabled:opacity-50"
-                              >
-                                {actionLoading === user.id ? "..." : "Activate"}
-                              </button>
-                            )}
+                            <div className="flex gap-2">
+                              {canViewSemester && user.role === "student" && (
+                                <Link
+                                  href={`/students/${encodeURIComponent(user.email)}/semester`}
+                                  className="bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-blue-600 transition-colors"
+                                >
+                                  View Semester
+                                </Link>
+                              )}
+                              {canManageUsers && (user.status || "active") === "active" && user.id !== currentUser.id && (
+                                <button
+                                  onClick={() => handleSuspend(user.id)}
+                                  disabled={actionLoading === user.id}
+                                  className="bg-orange-500 text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50"
+                                >
+                                  {actionLoading === user.id ? "..." : "Suspend"}
+                                </button>
+                              )}
+                              {canManageUsers && (user.status === "suspended" || user.status === "rejected") && (
+                                <button
+                                  onClick={() => handleActivate(user.id)}
+                                  disabled={actionLoading === user.id}
+                                  className="bg-green-500 text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-green-600 transition-colors disabled:opacity-50"
+                                >
+                                  {actionLoading === user.id ? "..." : "Activate"}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
