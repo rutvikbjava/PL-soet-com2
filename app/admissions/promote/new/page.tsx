@@ -6,6 +6,23 @@ import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 import SignaturePad from "@/components/SignaturePad";
 
+// Helper function to find active season
+function findActiveSeason(seasons: any[], department: string, section: string) {
+  if (!seasons || seasons.length === 0) return null;
+
+  // First try exact match on both department and section
+  const exact = seasons.find(s =>
+    s.department === department && s.section === section && s.status === 'open'
+  );
+  if (exact) return exact;
+
+  // Then try department match with no section restriction (season covers whole department)
+  const deptWide = seasons.find(s =>
+    s.department === department && (!s.section || s.section === '') && s.status === 'open'
+  );
+  return deptWide ?? null;
+}
+
 interface Student {
   email: string;
   full_name: string;
@@ -111,26 +128,19 @@ export default function PromoteNewPage() {
         else if (nextYear === 4) setEligibleForYear("IV Year");
 
         // Check if open season exists for this student's department and section
-        const { data: seasonData } = await (supabase.from("admission_seasons") as any)
+        const { data: allSeasons } = await (supabase.from("admission_seasons") as any)
           .select("*")
-          .eq("department", userData.department)
           .eq("status", "open");
 
-        // Filter for matching section or null/empty section
-        const matchingSeason = seasonData?.find(
-          (season: any) =>
-            season.section === userData.section ||
-            season.section === null ||
-            season.section === ""
-        );
+        const activeSeason = findActiveSeason(allSeasons ?? [], userData.department, userData.section);
 
-        if (!matchingSeason) {
+        if (!activeSeason) {
           setNoSeasonMessage(true);
           setLoading(false);
           return;
         }
 
-        setSeason(matchingSeason as AdmissionSeason);
+        setSeason(activeSeason as AdmissionSeason);
 
         // Check if student already submitted a form for current semester
         const { data: existingForm } = await (supabase.from("admission_forms") as any)

@@ -6,6 +6,23 @@ import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 
+// Helper function to find active season
+function findActiveSeason(seasons: any[], department: string, section: string) {
+  if (!seasons || seasons.length === 0) return null;
+
+  // First try exact match on both department and section
+  const exact = seasons.find(s =>
+    s.department === department && s.section === section && s.status === 'open'
+  );
+  if (exact) return exact;
+
+  // Then try department match with no section restriction (season covers whole department)
+  const deptWide = seasons.find(s =>
+    s.department === department && (!s.section || s.section === '') && s.status === 'open'
+  );
+  return deptWide ?? null;
+}
+
 interface CurrentUser {
   email: string;
   role: string;
@@ -88,20 +105,13 @@ export default function AdmissionsPage() {
 
         // For students, check for open season
         if (userData.role === "student") {
-          const { data: seasonData } = await (supabase.from("admission_seasons") as any)
+          const { data: allSeasons } = await (supabase.from("admission_seasons") as any)
             .select("*")
-            .eq("department", userData.department)
             .eq("status", "open");
 
-          // Filter for matching section or null/empty section
-          const matchingSeason = seasonData?.find(
-            (season: any) =>
-              season.section === userData.section ||
-              season.section === null ||
-              season.section === ""
-          );
+          const activeSeason = findActiveSeason(allSeasons ?? [], userData.department, userData.section);
 
-          setOpenSeason(matchingSeason || null);
+          setOpenSeason(activeSeason);
         }
 
         setLoading(false);
