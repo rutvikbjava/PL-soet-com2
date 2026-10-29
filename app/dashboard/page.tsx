@@ -48,6 +48,8 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [recentNotices, setRecentNotices] = useState<any[]>([]);
   const [pendingAdmissionsCount, setPendingAdmissionsCount] = useState(0);
+  const [admissionSeason, setAdmissionSeason] = useState<any>(null);
+  const [admissionForm, setAdmissionForm] = useState<any>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -78,13 +80,40 @@ export default function DashboardPage() {
         const role = (userData as any)?.role || null;
         setUserRole(role);
 
-        // Redirect students to /assignments
+        // For students, fetch admission data
+        let activeSeason = null;
+        let existingForm = null;
+
         if (role === "student") {
-          router.replace("/assignments");
-          return;
+          // Fetch open admission seasons
+          const { data: allSeasons } = await (supabase.from('admission_seasons') as any)
+            .select('*')
+            .eq('status', 'open');
+
+          // Find matching season
+          activeSeason = allSeasons?.find((s: any) =>
+            s.department === userData.department &&
+            (s.section === userData.section || !s.section || s.section === '')
+          ) ?? null;
+
+          // Check if student already has a form
+          const { data: formData } = await (supabase.from('admission_forms') as any)
+            .select('*')
+            .eq('student_email', email)
+            .eq('form_type', 'promotion')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          existingForm = formData;
+
+          // Store in state
+          setAdmissionSeason(activeSeason);
+          setAdmissionForm(existingForm);
         }
 
-        // Fetch My Documents
+        // Fetch My Documents (skip for students)
+        if (role !== "student") {
         const { data: myDocs, error: myDocsError } = await supabase
           .from("documents")
           .select("*")
@@ -328,23 +357,101 @@ export default function DashboardPage() {
         {/* Page Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div>
-            <h1 className="page-heading">My Documents</h1>
+            <h1 className="page-heading">{userRole === "student" ? "My Dashboard" : "My Documents"}</h1>
             <p className="text-sm text-gray-500 font-poppins mt-1">
-              Manage and track your submitted workflows
+              {userRole === "student" ? "Track your admission status and assignments" : "Manage and track your submitted workflows"}
             </p>
           </div>
-          <div className="flex gap-3 mt-4 md:mt-0">
-            <Link href="/upload" className="btn-primary">
-              Upload New Document
-            </Link>
-            <Link href="/notices/create" className="btn-secondary">
-              📢 Create Notice
-            </Link>
-          </div>
+          {userRole !== "student" && (
+            <div className="flex gap-3 mt-4 md:mt-0">
+              <Link href="/upload" className="btn-primary">
+                Upload New Document
+              </Link>
+              <Link href="/notices/create" className="btn-secondary">
+                📢 Create Notice
+              </Link>
+            </div>
+          )}
         </div>
 
+        {/* Admission Status Widget (Students Only) */}
+        {userRole === "student" && (
+          <div className="mb-8">
+            <h2 className="section-heading">🎓 Admission Status</h2>
+            <div className="card">
+              {admissionForm ? (
+                // Student has submitted a form
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-college-accent font-poppins">
+                        Semester Promotion
+                      </h3>
+                      <p className="text-sm text-gray-500 font-poppins mt-1">
+                        Semester {admissionForm.current_semester} → {admissionForm.target_semester}
+                      </p>
+                    </div>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        admissionForm.status === "in_progress"
+                          ? "bg-blue-100 text-blue-700"
+                          : admissionForm.status === "completed"
+                          ? "bg-green-100 text-green-700"
+                          : admissionForm.status === "rejected"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {admissionForm.status}
+                    </span>
+                  </div>
+                  <Link
+                    href={`/admissions/promote/${admissionForm.id}`}
+                    className="btn-primary inline-block"
+                  >
+                    View My Form
+                  </Link>
+                </div>
+              ) : admissionSeason ? (
+                // Admissions are open but form not submitted
+                <div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                    <p className="text-green-700 font-poppins text-sm font-medium">
+                      ✅ Admissions are open — Academic Year {admissionSeason.academic_year}
+                    </p>
+                  </div>
+                  <Link href="/admissions/promote/new" className="btn-primary inline-block">
+                    Fill Admission Form
+                  </Link>
+                </div>
+              ) : (
+                // Admissions are not open
+                <div className="text-center py-6">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-12 w-12 text-gray-300 mx-auto mb-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <p className="text-gray-500 font-poppins">
+                    Admissions are not open for your section yet.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+        {userRole !== "student" && (
           {/* Total Documents */}
           <div className="card text-center">
             <p className="text-3xl font-bold text-college-secondary font-poppins">
@@ -401,6 +508,7 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+        )}
 
         {/* Recent Notices Section */}
         <div className="mb-8">
@@ -449,7 +557,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Pending Your Approval Section (only for hod, coe, principal) */}
-        {(userRole === "hod" ||
+        {userRole !== "student" && (userRole === "hod" ||
           userRole === "coe" ||
           userRole === "principal") && (
           <div className="mb-8">
@@ -507,6 +615,7 @@ export default function DashboardPage() {
         )}
 
         {/* Your Action History Section */}
+        {userRole !== "student" && (
         <div className="mb-8">
           <h2 className="section-heading border-l-4 border-college-accent pl-3">
             Your Action History
@@ -561,8 +670,10 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+        )}
 
         {/* My Uploaded Documents */}
+        {userRole !== "student" && (
         <div>
           <h2 className="section-heading">My Uploaded Documents</h2>
           <div className="card">
@@ -649,6 +760,7 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+        )}
       </main>
 
       {/* Footer */}

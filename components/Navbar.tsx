@@ -516,8 +516,8 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             </Link>
           )}
 
-          {/* Admissions (for faculty, hod, accountant, librarian, admission_incharge, admin) */}
-          {(userRole === "faculty" || userRole === "hod" || userRole === "accountant" || userRole === "librarian" || userRole === "admission_incharge" || userRole === "admin") && (
+          {/* Admissions (for student, faculty, hod, accountant, librarian, admission_incharge, admin) */}
+          {(userRole === "student" || userRole === "faculty" || userRole === "hod" || userRole === "accountant" || userRole === "librarian" || userRole === "admission_incharge" || userRole === "admin") && (
             <Link
               href="/admissions"
               className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"
