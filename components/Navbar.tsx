@@ -536,8 +536,8 @@ export default function Navbar({ userEmail, userRole }: NavbarProps) {
             </Link>
           )}
 
-          {/* Admission Seasons (for principal, hod, admission_incharge) */}
-          {(userRole === "principal" || userRole === "hod" || userRole === "admission_incharge") && (
+          {/* Admission Seasons (for faculty, hod, principal, admission_incharge, admin) */}
+          {(userRole === "faculty" || userRole === "hod" || userRole === "principal" || userRole === "admission_incharge" || userRole === "admin") && (
             <Link
               href="/admissions/seasons"
               className="font-poppins text-sm font-medium text-college-text hover:text-college-secondary transition-colors whitespace-nowrap"

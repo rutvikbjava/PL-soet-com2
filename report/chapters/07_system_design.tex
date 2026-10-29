@@ -1,0 +1,448 @@
+% Chapter 4: System Design
+\chapter{SYSTEM DESIGN}
+
+\section{System Architecture}
+
+EduSphere AI follows a modern three-tier architecture with clear separation of concerns:
+
+\subsection{Presentation Layer}
+\begin{itemize}
+\item \textbf{Technology:} Next.js 14 with React 18
+\item \textbf{Rendering:} Server-side rendering (SSR) and static generation (SSG)
+\item \textbf{Styling:} Tailwind CSS for responsive design
+\item \textbf{State Management:} React hooks (useState, useEffect, custom hooks)
+\item \textbf{Client-Side Routing:} Next.js App Router
+\end{itemize}
+
+\subsection{Application Layer}
+\begin{itemize}
+\item \textbf{API Routes:} Next.js API directory (/api/*)
+\item \textbf{Business Logic:} TypeScript modules in /lib directory
+\item \textbf{Middleware:} Authentication verification, input validation
+\item \textbf{External APIs:} Judge0 for code execution
+\end{itemize}
+
+\subsection{Data Layer}
+\begin{itemize}
+\item \textbf{Database:} PostgreSQL 15+ via Supabase
+\item \textbf{File Storage:} Supabase Storage (S3-compatible)
+\item \textbf{Authentication:} Supabase Auth with JWT tokens
+\item \textbf{Real-time:} Supabase Realtime for notifications
+\end{itemize}
+
+\section{Database Design}
+
+\subsection{Entity-Relationship Diagram}
+
+The database consists of 15+ interconnected tables designed to maintain data integrity and support complex queries.
+
+\subsection{Core Tables}
+
+\subsubsection{users}
+Stores all user accounts with authentication and profile information.
+\begin{lstlisting}[language=SQL]
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email TEXT UNIQUE NOT NULL,
+    full_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('student', 'faculty', 'hod', 'coe', 'principal', 'admin')),
+    department TEXT,
+    section TEXT,
+    employee_id TEXT,
+    phone TEXT,
+    current_year INTEGER,
+    current_semester INTEGER,
+    status TEXT DEFAULT 'pending',
+    approval_stage TEXT,
+    created_by_email TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+\end{lstlisting}
+
+\subsubsection{documents}
+Stores metadata for all uploaded documents.
+\begin{lstlisting}[language=SQL]
+CREATE TABLE documents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title TEXT NOT NULL,
+    type TEXT NOT NULL,
+    category TEXT,
+    department TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    creator_id UUID REFERENCES users(id),
+    file_url TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+\end{lstlisting}
+
+\subsubsection{workflows}
+Defines approval workflows for documents.
+\begin{lstlisting}[language=SQL]
+CREATE TABLE workflows (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+    policy_valid BOOLEAN DEFAULT TRUE,
+    generated_steps JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+\end{lstlisting}
+
+\subsubsection{approvals}
+Tracks individual approval steps and signatures.
+\begin{lstlisting}[language=SQL]
+CREATE TABLE approvals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    workflow_id UUID REFERENCES workflows(id) ON DELETE CASCADE,
+    step_order INTEGER NOT NULL,
+    required_role TEXT NOT NULL,
+    approver_id UUID REFERENCES users(id),
+    status TEXT DEFAULT 'pending',
+    signature_url TEXT,
+    comment TEXT,
+    acted_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+\end{lstlisting}
+
+\subsection{Assignment Tables}
+
+\subsubsection{assignments}
+\begin{lstlisting}[language=SQL]
+CREATE TABLE assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title TEXT NOT NULL,
+    description TEXT,
+    type TEXT NOT NULL CHECK (type IN ('code', 'link', 'project', 'document')),
+    faculty_email TEXT NOT NULL,
+    department TEXT,
+    section TEXT,
+    max_score INTEGER DEFAULT 100,
+    deadline TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+\end{lstlisting}
+
+\subsubsection{submissions}
+\begin{lstlisting}[language=SQL]
+CREATE TABLE submissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    assignment_id UUID REFERENCES assignments(id) ON DELETE CASCADE,
+    student_email TEXT NOT NULL,
+    code TEXT,
+    language TEXT,
+    link_url TEXT,
+    file_url TEXT,
+    score INTEGER,
+    status TEXT DEFAULT 'pending',
+    submitted_at TIMESTAMP DEFAULT NOW()
+);
+\end{lstlisting}
+
+\subsection{Admissions Tables}
+
+Tables for managing semester promotions and fresh admissions with multi-step approval workflows.
+
+\begin{lstlisting}[language=SQL]
+CREATE TABLE admission_forms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    form_type TEXT NOT NULL CHECK (form_type IN ('promotion', 'fresh')),
+    student_email TEXT NOT NULL,
+    student_name TEXT NOT NULL,
+    department TEXT NOT NULL,
+    section TEXT NOT NULL,
+    current_semester INTEGER,
+    target_semester INTEGER,
+    status TEXT DEFAULT 'in_progress',
+    remarks JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE admission_steps (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    form_id UUID REFERENCES admission_forms(id) ON DELETE CASCADE,
+    step_order INTEGER NOT NULL,
+    step_name TEXT NOT NULL,
+    required_role TEXT NOT NULL,
+    assigned_to_email TEXT,
+    status TEXT DEFAULT 'pending',
+    signature_url TEXT,
+    signed_at TIMESTAMP,
+    comment TEXT
+);
+\end{lstlisting}
+
+\section{Workflow Generation Algorithm}
+
+\subsection{Document Context Analysis}
+
+The workflow generation system analyzes multiple document attributes:
+
+\begin{lstlisting}[language=JavaScript]
+function analyzeDocumentContext(document) {
+    const context = {
+        type: document.type,           // notice, circular, policy, etc.
+        scope: document.scope,         // department, college, institution
+        department: document.department,
+        category: document.category,
+        creatorRole: document.creatorRole
+    };
+    return context;
+}
+\end{lstlisting}
+
+\subsection{Workflow Rules}
+
+\begin{enumerate}
+\item \textbf{Notices and Circulars:}
+    \begin{itemize}
+    \item Department scope → HOD only
+    \item College scope → HOD → Principal
+    \item Institution scope → HOD → COE → Principal
+    \end{itemize}
+
+\item \textbf{Policy Documents:}
+    \begin{itemize}
+    \item Always require → HOD → Principal
+    \end{itemize}
+
+\item \textbf{Exam Schedules:}
+    \begin{itemize}
+    \item Require → HOD → COE → Principal
+    \end{itemize}
+
+\item \textbf{Timetables:}
+    \begin{itemize}
+    \item Department scope → HOD only
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Approval Matching Logic}
+
+Approvers are matched by \textbf{role}, not by specific user ID:
+
+\begin{lstlisting}[language=JavaScript]
+async function findApprovers(requiredRole, department) {
+    const approvers = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', requiredRole)
+        .eq('department', department)
+        .eq('status', 'active');
+    
+    return approvers;
+}
+\end{lstlisting}
+
+Any active user with the required role can approve, providing flexibility when personnel changes occur.
+
+\section{Component Design}
+
+\subsection{Frontend Components}
+
+\subsubsection{Navbar Component}
+Provides navigation with role-based visibility:
+\begin{itemize}
+\item Student: Assignments, Notice Board, Profile
+\item Faculty: + Dashboard, Upload, Users, Analytics
+\item HOD: + Department Management, Approvals
+\item Principal: + All Features
+\end{itemize}
+
+\subsubsection{SignaturePad Component}
+Dual-mode signature capture:
+\begin{itemize}
+\item Draw mode: HTML5 canvas for drawing
+\item Upload mode: File input for existing signatures
+\item Export: PNG format with transparency
+\end{itemize}
+
+\subsubsection{Dashboard Cards}
+Reusable statistic displays:
+\begin{itemize}
+\item Total count with icon
+\item Color-coded by status
+\item Click to filter/navigate
+\end{itemize}
+
+\subsection{Backend Modules}
+
+\subsubsection{Workflow Generation Module}
+\textbf{File:} /lib/workflow.ts\\
+\textbf{Functions:}
+\begin{itemize}
+\item analyzeDocumentContext()
+\item generateWorkflowSteps()
+\item createApprovalRecords()
+\end{itemize}
+
+\subsubsection{PDF Signature Module}
+\textbf{File:} /lib/pdf-signer.ts\\
+\textbf{Functions:}
+\begin{itemize}
+\item embedSignatureInPDF()
+\item validatePDFDocument()
+\item generateSignedPDF()
+\end{itemize}
+
+\subsubsection{Code Execution Module}
+\textbf{File:} /lib/code-executor.ts\\
+\textbf{Functions:}
+\begin{itemize}
+\item submitToJudge0()
+\item pollForResults()
+\item evaluateTestCases()
+\end{itemize}
+
+\section{Interface Design}
+
+\subsection{Design Principles}
+
+\begin{itemize}
+\item \textbf{Consistency:} Uniform color scheme, typography, and component styles
+\item \textbf{Simplicity:} Minimal clicks to complete tasks
+\item \textbf{Feedback:} Loading states, success/error messages, progress indicators
+\item \textbf{Accessibility:} WCAG 2.1 compliant colors, keyboard navigation
+\item \textbf{Responsiveness:} Mobile-first design, works on all screen sizes
+\end{itemize}
+
+\subsection{Color Scheme}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Element} & \textbf{Color} & \textbf{Hex Code} \\
+\midrule
+Primary & College Blue & \#1E40AF \\
+Secondary & Warm Orange & \#F59E0B \\
+Success & Green & \#10B981 \\
+Warning & Yellow & \#FBBF24 \\
+Error & Red & \#EF4444 \\
+Background & Light Gray & \#F9FAFB \\
+Text & Dark Gray & \#111827 \\
+\bottomrule
+\end{tabular}
+\caption{Color Palette}
+\end{table}
+
+\subsection{Key User Interfaces}
+
+\subsubsection{Dashboard}
+\begin{itemize}
+\item Summary cards showing document counts by status
+\item Pending approvals table (for approvers)
+\item Recent documents list
+\item Quick action buttons
+\end{itemize}
+
+\subsubsection{Document Upload Form}
+\begin{itemize}
+\item Title, type, category, scope inputs
+\item Department selection
+\item File upload with drag-and-drop
+\item Validation and preview
+\item Submit for approval button
+\end{itemize}
+
+\subsubsection{Approval Interface}
+\begin{itemize}
+\item Document preview/download
+\item Approval step timeline visualization
+\item Signature capture area
+\item Comment field (optional/required)
+\item Approve/Reject buttons
+\end{itemize}
+
+\subsubsection{Assignment Creation}
+\begin{itemize}
+\item Assignment type selector
+\item Test case editor (for code assignments)
+\item Deadline picker
+\item Target audience selection (department/section)
+\item Points configuration
+\end{itemize}
+
+\section{Security Design}
+
+\subsection{Authentication Flow}
+
+\begin{enumerate}
+\item User submits email and password
+\item Supabase Auth verifies credentials
+\item JWT token generated with 1-hour expiration
+\item Token stored in httpOnly cookie
+\item Refresh token enables automatic renewal
+\end{enumerate}
+
+\subsection{Authorization Checks}
+
+\textbf{Client-Side:}
+\begin{itemize}
+\item Route guards redirect unauthorized users
+\item UI elements hidden based on role
+\end{itemize}
+
+\textbf{Server-Side:}
+\begin{itemize}
+\item JWT verification on every API call
+\item Role validation against required permissions
+\item Row-level security policies in database
+\end{itemize}
+
+\subsection{Data Protection}
+
+\begin{itemize}
+\item Passwords hashed with bcrypt (salt rounds: 10)
+\item Sensitive data encrypted at rest
+\item HTTPS enforced for all communications
+\item Input sanitization to prevent XSS
+\item Parameterized queries to prevent SQL injection
+\item CSRF tokens on state-changing operations
+\end{itemize}
+
+\section{Deployment Architecture}
+
+\subsection{Production Environment}
+
+\begin{itemize}
+\item \textbf{Frontend Hosting:} Vercel Edge Network
+\item \textbf{Database:} Supabase (AWS Multi-AZ PostgreSQL)
+\item \textbf{File Storage:} Supabase Storage (S3-compatible)
+\item \textbf{CDN:} Vercel Edge for global distribution
+\item \textbf{SSL:} Automatic HTTPS via Let's Encrypt
+\end{itemize}
+
+\subsection{CI/CD Pipeline}
+
+\begin{enumerate}
+\item Code pushed to GitHub repository
+\item Vercel detects new commit
+\item Build process initiated:
+    \begin{itemize}
+    \item Install dependencies
+    \item Run TypeScript compilation
+    \item Execute lint checks
+    \item Build Next.js production bundle
+    \end{itemize}
+\item Deploy to preview URL (for branches)
+\item Deploy to production (for main branch)
+\item Automatic rollback on build failure
+\end{enumerate}
+
+\section{Scalability Considerations}
+
+\begin{itemize}
+\item \textbf{Horizontal Scaling:} Vercel auto-scales based on traffic
+\item \textbf{Database:} Connection pooling and read replicas
+\item \textbf{Caching:} Static page caching, CDN edge caching
+\item \textbf{File Storage:} CDN distribution for global access
+\item \textbf{Code Execution:} Rate limiting and queuing for Judge0 requests
+\end{itemize}
+
+\section{Conclusion}
+
+The system design chapter presents a comprehensive architecture that balances performance, security, and maintainability. The three-tier architecture provides clear separation of concerns. The database schema supports complex queries while maintaining data integrity through foreign keys and constraints. The workflow generation algorithm automates approval routing based on intelligent context analysis. Component-based frontend design promotes code reusability. Security is embedded at every layer from authentication to data storage. The deployment architecture leverages cloud platforms for scalability and reliability.
+
+\newpage

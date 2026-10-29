@@ -154,6 +154,9 @@ export async function POST(request: NextRequest) {
         break;
 
       case 'admin':
+      case 'accountant':
+      case 'librarian':
+      case 'admission_incharge':
         canCreate = true;
         status = 'active';
         approval_stage = null;

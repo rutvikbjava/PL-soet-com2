@@ -10,6 +10,7 @@ interface CurrentUser {
   email: string;
   role: string;
   department: string | null;
+  section: string | null;
 }
 
 interface Department {
@@ -26,13 +27,14 @@ interface Section {
 interface AdmissionSeason {
   id: string;
   department: string;
-  section: string;
+  section: string | null;
   academic_year: string;
   target_semester: number;
   status: string;
   opened_by_email: string;
   created_at: string;
   closed_at: string | null;
+  student_count?: number;
 }
 
 export default function AdmissionSeasonsPage() {
@@ -72,7 +74,7 @@ export default function AdmissionSeasonsPage() {
 
         // Fetch current user
         const { data: userData } = await (supabase.from("users") as any)
-          .select("email, role, department")
+          .select("email, role, department, section")
           .eq("email", userEmail)
           .single();
 
@@ -82,7 +84,7 @@ export default function AdmissionSeasonsPage() {
         }
 
         // Check role access
-        if (!["principal", "hod", "admission_incharge"].includes(userData.role)) {
+        if (!["faculty", "hod", "principal", "admission_incharge"].includes(userData.role)) {
           router.replace("/admissions");
           return;
         }
@@ -91,11 +93,50 @@ export default function AdmissionSeasonsPage() {
           email: userData.email,
           role: userData.role,
           department: userData.department || null,
+          section: userData.section || null,
         });
 
         // Fetch departments
         const { data: deptData } = await (supabase.from("departments") as any).select("*");
         setDepartments((deptData || []) as Department[]);
+
+        // For faculty: auto-select their department and section
+        if (userData.role === "faculty" && userData.department) {
+          const dept = (deptData || []).find((d: Department) => d.name === userData.department);
+          if (dept) {
+            setSelectedDeptId(dept.id);
+            setSelectedDeptName(dept.name);
+            
+            // Fetch and select their section
+            const { data: sectionData } = await (supabase.from("sections") as any)
+              .select("*")
+              .eq("department_id", dept.id);
+            setSections((sectionData || []) as Section[]);
+            
+            if (userData.section) {
+              const section = (sectionData || []).find((s: Section) => s.name === userData.section);
+              if (section) {
+                setSelectedSectionId(section.id);
+                setSelectedSectionName(section.name);
+              }
+            }
+          }
+        }
+
+        // For hod: auto-select their department
+        if (userData.role === "hod" && userData.department) {
+          const dept = (deptData || []).find((d: Department) => d.name === userData.department);
+          if (dept) {
+            setSelectedDeptId(dept.id);
+            setSelectedDeptName(dept.name);
+            
+            // Fetch sections for their department
+            const { data: sectionData } = await (supabase.from("sections") as any)
+              .select("*")
+              .eq("department_id", dept.id);
+            setSections((sectionData || []) as Section[]);
+          }
+        }
 
         // Fetch seasons
         await fetchSeasons(supabase, userData.role, userData.department);
@@ -113,13 +154,33 @@ export default function AdmissionSeasonsPage() {
   const fetchSeasons = async (supabase: any, role: string, department: string | null) => {
     let query = (supabase.from("admission_seasons") as any).select("*").order("created_at", { ascending: false });
 
-    // Filter for HOD
-    if (role === "hod" && department) {
+    // Filter for HOD and Faculty
+    if ((role === "hod" || role === "faculty") && department) {
       query = query.eq("department", department);
     }
 
     const { data } = await query;
-    setSeasons((data || []) as AdmissionSeason[]);
+    const seasonsData = (data || []) as AdmissionSeason[];
+
+    // For each season, fetch student count
+    const seasonsWithCounts = await Promise.all(
+      seasonsData.map(async (season) => {
+        let countQuery = (supabase.from("users") as any)
+          .select("email", { count: "exact", head: true })
+          .eq("role", "student")
+          .eq("department", season.department);
+
+        // If season has a specific section, filter by it; otherwise all sections match
+        if (season.section) {
+          countQuery = countQuery.eq("section", season.section);
+        }
+
+        const { count } = await countQuery;
+        return { ...season, student_count: count || 0 };
+      })
+    );
+
+    setSeasons(seasonsWithCounts);
   };
 
   const handleDepartmentChange = async (deptId: string) => {
@@ -149,8 +210,8 @@ export default function AdmissionSeasonsPage() {
   const handleOpenSeason = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!currentUser || !selectedDeptName || !selectedSectionName || !academicYear || !targetSemester) {
-      alert("Please fill all fields");
+    if (!currentUser || !selectedDeptName || !academicYear || !targetSemester) {
+      alert("Please fill all required fields");
       return;
     }
 
@@ -167,7 +228,7 @@ export default function AdmissionSeasonsPage() {
 
       await (supabase.from("admission_seasons") as any).insert({
         department: selectedDeptName,
-        section: selectedSectionName,
+        section: selectedSectionName || null,
         academic_year: academicYear,
         target_semester: semesterNum,
         opened_by_email: currentUser.email,
@@ -235,8 +296,10 @@ export default function AdmissionSeasonsPage() {
       : "bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-semibold";
   };
 
-  const canOpenSeason = currentUser && ["principal", "admission_incharge"].includes(currentUser.role);
-  const canCloseSeason = currentUser && ["principal", "admission_incharge"].includes(currentUser.role);
+  const canOpenSeason = currentUser && ["faculty", "hod", "principal", "admission_incharge"].includes(currentUser.role);
+  const canCloseSeason = currentUser && ["faculty", "hod", "principal", "admission_incharge"].includes(currentUser.role);
+  const isFaculty = currentUser?.role === "faculty";
+  const isHod = currentUser?.role === "hod";
 
   if (loading) {
     return (
@@ -282,6 +345,7 @@ export default function AdmissionSeasonsPage() {
                     onChange={(e) => handleDepartmentChange(e.target.value)}
                     className="input-field"
                     required
+                    disabled={isFaculty || isHod}
                   >
                     <option value="">Select Department</option>
                     {departments.map((dept) => (
@@ -290,27 +354,42 @@ export default function AdmissionSeasonsPage() {
                       </option>
                     ))}
                   </select>
+                  {(isFaculty || isHod) && (
+                    <p className="text-xs text-gray-500 mt-1 font-poppins">
+                      Auto-filled with your department
+                    </p>
+                  )}
                 </div>
 
                 {/* Section */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1 font-poppins">
-                    Section *
+                    Section {!isFaculty && "(optional)"}
                   </label>
                   <select
                     value={selectedSectionId}
                     onChange={(e) => handleSectionChange(e.target.value)}
                     className="input-field"
-                    required
-                    disabled={!selectedDeptId}
+                    required={isFaculty}
+                    disabled={!selectedDeptId || isFaculty}
                   >
-                    <option value="">Select Section</option>
+                    <option value="">All Sections</option>
                     {sections.map((section) => (
                       <option key={section.id} value={section.id}>
                         {section.name}
                       </option>
                     ))}
                   </select>
+                  {isFaculty && (
+                    <p className="text-xs text-gray-500 mt-1 font-poppins">
+                      Auto-filled with your section
+                    </p>
+                  )}
+                  {!isFaculty && (
+                    <p className="text-xs text-gray-500 mt-1 font-poppins">
+                      Leave blank to apply to all sections
+                    </p>
+                  )}
                 </div>
 
                 {/* Academic Year */}
@@ -376,6 +455,7 @@ export default function AdmissionSeasonsPage() {
                     <th className="table-header">Section</th>
                     <th className="table-header">Academic Year</th>
                     <th className="table-header">Target Semester</th>
+                    <th className="table-header">Students in Scope</th>
                     <th className="table-header">Status</th>
                     <th className="table-header">Opened By</th>
                     <th className="table-header">Opened Date</th>
@@ -389,13 +469,16 @@ export default function AdmissionSeasonsPage() {
                         {season.department}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
-                        {season.section}
+                        {season.section || "All Sections"}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                         {season.academic_year}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
                         Semester {season.target_semester}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                        {season.student_count !== undefined ? season.student_count : "—"} students
                       </td>
                       <td className="px-4 py-3">
                         <span className={getStatusBadgeClass(season.status)}>

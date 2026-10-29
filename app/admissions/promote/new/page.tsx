@@ -114,17 +114,23 @@ export default function PromoteNewPage() {
         const { data: seasonData } = await (supabase.from("admission_seasons") as any)
           .select("*")
           .eq("department", userData.department)
-          .eq("section", userData.section)
-          .eq("status", "open")
-          .single();
+          .eq("status", "open");
 
-        if (!seasonData) {
+        // Filter for matching section or null/empty section
+        const matchingSeason = seasonData?.find(
+          (season: any) =>
+            season.section === userData.section ||
+            season.section === null ||
+            season.section === ""
+        );
+
+        if (!matchingSeason) {
           setNoSeasonMessage(true);
           setLoading(false);
           return;
         }
 
-        setSeason(seasonData as AdmissionSeason);
+        setSeason(matchingSeason as AdmissionSeason);
 
         // Check if student already submitted a form for current semester
         const { data: existingForm } = await (supabase.from("admission_forms") as any)

@@ -91,11 +91,17 @@ export default function AdmissionsPage() {
           const { data: seasonData } = await (supabase.from("admission_seasons") as any)
             .select("*")
             .eq("department", userData.department)
-            .eq("section", userData.section)
-            .eq("status", "open")
-            .single();
+            .eq("status", "open");
 
-          setOpenSeason(seasonData || null);
+          // Filter for matching section or null/empty section
+          const matchingSeason = seasonData?.find(
+            (season: any) =>
+              season.section === userData.section ||
+              season.section === null ||
+              season.section === ""
+          );
+
+          setOpenSeason(matchingSeason || null);
         }
 
         setLoading(false);
@@ -125,7 +131,9 @@ export default function AdmissionsPage() {
         .eq("department", department)
         .eq("section", section);
     } else if (role === "hod") {
-      query = query.eq("department", department);
+      query = query
+        .eq("form_type", "promotion")
+        .eq("department", department);
     } else if (role === "accountant" || role === "librarian") {
       query = query.eq("status", "in_progress");
     } else if (role === "principal" || role === "admin") {
@@ -383,9 +391,21 @@ export default function AdmissionsPage() {
 
   // HOD, PRINCIPAL, ADMIN, ADMISSION_INCHARGE VIEW (with tabs)
   if (["hod", "principal", "admin", "admission_incharge"].includes(currentUser.role)) {
-    const showTabs = true;
+    const showTabs = currentUser.role !== "hod"; // HOD doesn't use tabs, shows promotion first then fresh below
     const showDepartmentFilter = currentUser.role === "principal" || currentUser.role === "admin";
     const showNewFreshButton = currentUser.role === "admission_incharge" && activeTab === "fresh";
+
+    // For HOD: separate promotion and fresh forms
+    const promotionForms = currentUser.role === "hod" 
+      ? forms.filter((f) => f.form_type === "promotion")
+      : [];
+    const freshForms = currentUser.role === "hod"
+      ? forms.filter((f) => f.form_type === "fresh")
+      : [];
+
+    // For Principal/Admin: calculate tab counts
+    const promotionCount = forms.filter((f) => f.form_type === "promotion").length;
+    const freshCount = forms.filter((f) => f.form_type === "fresh").length;
 
     return (
       <div className="min-h-screen bg-college-bg">
@@ -406,31 +426,33 @@ export default function AdmissionsPage() {
             )}
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-2 mb-6">
-            <button
-              onClick={() => setActiveTab("promotion")}
-              className={`px-4 py-2 rounded-lg font-poppins text-sm font-medium transition-colors ${
-                activeTab === "promotion"
-                  ? "bg-college-secondary text-white"
-                  : "bg-white text-college-text border border-college-peach hover:bg-college-peach"
-              }`}
-            >
-              Promotion Forms
-            </button>
-            <button
-              onClick={() => setActiveTab("fresh")}
-              className={`px-4 py-2 rounded-lg font-poppins text-sm font-medium transition-colors ${
-                activeTab === "fresh"
-                  ? "bg-college-secondary text-white"
-                  : "bg-white text-college-text border border-college-peach hover:bg-college-peach"
-              }`}
-            >
-              Fresh Admissions
-            </button>
-          </div>
+          {/* Tabs (for Principal, Admin, admission_incharge) */}
+          {showTabs && (
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setActiveTab("promotion")}
+                className={`px-4 py-2 rounded-lg font-poppins text-sm font-medium transition-colors ${
+                  activeTab === "promotion"
+                    ? "bg-college-secondary text-white"
+                    : "bg-white text-college-text border border-college-peach hover:bg-college-peach"
+                }`}
+              >
+                Promotion ({promotionCount})
+              </button>
+              <button
+                onClick={() => setActiveTab("fresh")}
+                className={`px-4 py-2 rounded-lg font-poppins text-sm font-medium transition-colors ${
+                  activeTab === "fresh"
+                    ? "bg-college-secondary text-white"
+                    : "bg-white text-college-text border border-college-peach hover:bg-college-peach"
+                }`}
+              >
+                Fresh ({freshCount})
+              </button>
+            </div>
+          )}
 
-          {/* Department Filter */}
+          {/* Department Filter (for Principal, Admin) */}
           {showDepartmentFilter && departments.length > 0 && (
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2 font-poppins">
@@ -451,86 +473,268 @@ export default function AdmissionsPage() {
             </div>
           )}
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="card text-center">
-              <p className="text-2xl font-bold text-college-secondary font-poppins">{totalCount}</p>
-              <p className="text-xs text-gray-500 font-poppins mt-1">Total</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-2xl font-bold text-blue-600 font-poppins">{pendingCount}</p>
-              <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-2xl font-bold text-green-600 font-poppins">{completedCount}</p>
-              <p className="text-xs text-gray-500 font-poppins mt-1">Completed</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-2xl font-bold text-red-600 font-poppins">{rejectedCount}</p>
-              <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
-            </div>
-          </div>
+          {/* HOD VIEW - Promotion Forms */}
+          {currentUser.role === "hod" && (
+            <>
+              {/* Promotion Forms Section */}
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold text-college-accent font-poppins mb-4">
+                  Promotion Forms
+                </h2>
 
-          {/* Table */}
-          <div className="card">
-            {filteredForms.length === 0 ? (
-              <p className="text-sm text-gray-400 py-6 font-poppins text-center">
-                No admission forms found.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr>
-                      <th className="table-header">Student Name</th>
-                      <th className="table-header">Department</th>
-                      <th className="table-header">Section</th>
-                      <th className="table-header">Semester</th>
-                      <th className="table-header">Status</th>
-                      <th className="table-header">Submitted Date</th>
-                      <th className="table-header">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredForms.map((form) => (
-                      <tr key={form.id} className="table-row">
-                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
-                          {form.student_name}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
-                          {form.department}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
-                          {form.section}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
-                          {form.current_semester} → {form.target_semester}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={getStatusBadgeClass(form.status)}>{form.status}</span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
-                          {formatDate(form.created_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Link
-                            href={
-                              form.form_type === "promotion"
-                                ? `/admissions/promote/${form.id}`
-                                : `/admissions/fresh/${form.id}`
-                            }
-                            className="text-college-secondary text-xs font-poppins font-semibold hover:underline"
-                          >
-                            View
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {/* Summary Cards for Promotion */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-college-secondary font-poppins">{promotionForms.length}</p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Total</p>
+                  </div>
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-blue-600 font-poppins">
+                      {promotionForms.filter((f) => f.status === "in_progress").length}
+                    </p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
+                  </div>
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-green-600 font-poppins">
+                      {promotionForms.filter((f) => f.status === "completed").length}
+                    </p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Completed</p>
+                  </div>
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-red-600 font-poppins">
+                      {promotionForms.filter((f) => f.status === "rejected").length}
+                    </p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
+                  </div>
+                </div>
+
+                {/* Promotion Table */}
+                <div className="card">
+                  {promotionForms.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-6 font-poppins text-center">
+                      No promotion forms found.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr>
+                            <th className="table-header">Student Name</th>
+                            <th className="table-header">Section</th>
+                            <th className="table-header">Semester</th>
+                            <th className="table-header">Status</th>
+                            <th className="table-header">Submitted Date</th>
+                            <th className="table-header">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {promotionForms.map((form) => (
+                            <tr key={form.id} className="table-row">
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                {form.student_name}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                {form.section}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                {form.current_semester} → {form.target_semester}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={getStatusBadgeClass(form.status)}>{form.status}</span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                {formatDate(form.created_at)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Link
+                                  href={`/admissions/promote/${form.id}`}
+                                  className="text-college-secondary text-xs font-poppins font-semibold hover:underline"
+                                >
+                                  View
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Fresh Admission Forms Section */}
+              <div>
+                <h2 className="text-xl font-semibold text-college-accent font-poppins mb-4">
+                  Fresh Admission Forms
+                </h2>
+
+                {/* Summary Cards for Fresh */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-college-secondary font-poppins">{freshForms.length}</p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Total</p>
+                  </div>
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-blue-600 font-poppins">
+                      {freshForms.filter((f) => f.status === "in_progress").length}
+                    </p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
+                  </div>
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-green-600 font-poppins">
+                      {freshForms.filter((f) => f.status === "completed").length}
+                    </p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Completed</p>
+                  </div>
+                  <div className="card text-center">
+                    <p className="text-2xl font-bold text-red-600 font-poppins">
+                      {freshForms.filter((f) => f.status === "rejected").length}
+                    </p>
+                    <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
+                  </div>
+                </div>
+
+                {/* Fresh Table */}
+                <div className="card">
+                  {freshForms.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-6 font-poppins text-center">
+                      No fresh admission forms found.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr>
+                            <th className="table-header">Student Name</th>
+                            <th className="table-header">Section</th>
+                            <th className="table-header">Target Semester</th>
+                            <th className="table-header">Status</th>
+                            <th className="table-header">Submitted Date</th>
+                            <th className="table-header">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {freshForms.map((form) => (
+                            <tr key={form.id} className="table-row">
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                {form.student_name}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                {form.section}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                Semester {form.target_semester}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={getStatusBadgeClass(form.status)}>{form.status}</span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                                {formatDate(form.created_at)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Link
+                                  href={`/admissions/fresh/${form.id}`}
+                                  className="text-college-secondary text-xs font-poppins font-semibold hover:underline"
+                                >
+                                  View
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* PRINCIPAL, ADMIN, ADMISSION_INCHARGE VIEW - Tabbed View */}
+          {currentUser.role !== "hod" && (
+            <>
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="card text-center">
+                  <p className="text-2xl font-bold text-college-secondary font-poppins">{totalCount}</p>
+                  <p className="text-xs text-gray-500 font-poppins mt-1">Total</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-2xl font-bold text-blue-600 font-poppins">{pendingCount}</p>
+                  <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-2xl font-bold text-green-600 font-poppins">{completedCount}</p>
+                  <p className="text-xs text-gray-500 font-poppins mt-1">Completed</p>
+                </div>
+                <div className="card text-center">
+                  <p className="text-2xl font-bold text-red-600 font-poppins">{rejectedCount}</p>
+                  <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="card">
+                {filteredForms.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 font-poppins text-center">
+                    No admission forms found.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className="table-header">Student Name</th>
+                          <th className="table-header">Department</th>
+                          <th className="table-header">Section</th>
+                          <th className="table-header">Semester</th>
+                          <th className="table-header">Status</th>
+                          <th className="table-header">Submitted Date</th>
+                          <th className="table-header">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredForms.map((form) => (
+                          <tr key={form.id} className="table-row">
+                            <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                              {form.student_name}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                              {form.department}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                              {form.section}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                              {form.current_semester} → {form.target_semester}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={getStatusBadgeClass(form.status)}>{form.status}</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 font-poppins">
+                              {formatDate(form.created_at)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <Link
+                                href={
+                                  form.form_type === "promotion"
+                                    ? `/admissions/promote/${form.id}`
+                                    : `/admissions/fresh/${form.id}`
+                                }
+                                className="text-college-secondary text-xs font-poppins font-semibold hover:underline"
+                              >
+                                View
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </main>
 
         <footer className="text-xs text-gray-400 text-center py-6 font-poppins">
