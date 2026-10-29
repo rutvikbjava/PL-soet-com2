@@ -39,3 +39,6 @@ next-env.d.ts
 # Obsidian and personal folders
 rutvik/
 .obsidian/
+
+# Report folder
+report/
