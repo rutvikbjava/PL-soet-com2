@@ -219,6 +219,7 @@ export default function DashboardPage() {
           }
         }
         setActionHistory(history);
+        } // Close if (role !== "student")
 
         // Fetch Recent Notices
         const { data: notices } = await (supabase as any)
@@ -452,62 +453,63 @@ export default function DashboardPage() {
 
         {/* Stats Row */}
         {userRole !== "student" && (
-          {/* Total Documents */}
-          <div className="card text-center">
-            <p className="text-3xl font-bold text-college-secondary font-poppins">
-              {totalCount}
-            </p>
-            <p className="text-xs text-gray-500 font-poppins mt-1">
-              Total Documents
-            </p>
-          </div>
-
-          {/* Pending */}
-          <div className="card text-center">
-            <p className="text-3xl font-bold text-college-secondary font-poppins">
-              {pendingCount}
-            </p>
-            <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
-          </div>
-
-          {/* Approved */}
-          <div className="card text-center">
-            <p className="text-3xl font-bold text-college-secondary font-poppins">
-              {approvedCount}
-            </p>
-            <p className="text-xs text-gray-500 font-poppins mt-1">Approved</p>
-          </div>
-
-          {/* Rejected */}
-          <div className="card text-center">
-            <p className="text-3xl font-bold text-college-secondary font-poppins">
-              {rejectedCount}
-            </p>
-            <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
-          </div>
-
-          {/* Pending Admissions */}
-          <div className="card text-center">
-            <p className="text-3xl font-bold text-college-secondary font-poppins">
-              {pendingAdmissionsCount}
-            </p>
-            <p className="text-xs text-gray-500 font-poppins mt-1 mb-2">
-              Pending Admissions
-            </p>
-            {pendingAdmissionsCount > 0 ? (
-              <Link
-                href="/admissions"
-                className="inline-block bg-college-secondary text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-college-accent transition-colors"
-              >
-                Review Now
-              </Link>
-            ) : (
-              <p className="text-xs text-gray-400 font-poppins">
-                No pending admissions
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+            {/* Total Documents */}
+            <div className="card text-center">
+              <p className="text-3xl font-bold text-college-secondary font-poppins">
+                {totalCount}
               </p>
-            )}
+              <p className="text-xs text-gray-500 font-poppins mt-1">
+                Total Documents
+              </p>
+            </div>
+
+            {/* Pending */}
+            <div className="card text-center">
+              <p className="text-3xl font-bold text-college-secondary font-poppins">
+                {pendingCount}
+              </p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Pending</p>
+            </div>
+
+            {/* Approved */}
+            <div className="card text-center">
+              <p className="text-3xl font-bold text-college-secondary font-poppins">
+                {approvedCount}
+              </p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Approved</p>
+            </div>
+
+            {/* Rejected */}
+            <div className="card text-center">
+              <p className="text-3xl font-bold text-college-secondary font-poppins">
+                {rejectedCount}
+              </p>
+              <p className="text-xs text-gray-500 font-poppins mt-1">Rejected</p>
+            </div>
+
+            {/* Pending Admissions */}
+            <div className="card text-center">
+              <p className="text-3xl font-bold text-college-secondary font-poppins">
+                {pendingAdmissionsCount}
+              </p>
+              <p className="text-xs text-gray-500 font-poppins mt-1 mb-2">
+                Pending Admissions
+              </p>
+              {pendingAdmissionsCount > 0 ? (
+                <Link
+                  href="/admissions"
+                  className="inline-block bg-college-secondary text-white px-3 py-1 rounded-lg text-xs font-poppins font-semibold hover:bg-college-accent transition-colors"
+                >
+                  Review Now
+                </Link>
+              ) : (
+                <p className="text-xs text-gray-400 font-poppins">
+                  No pending admissions
+                </p>
+              )}
+            </div>
           </div>
-        </div>
         )}
 
         {/* Recent Notices Section */}
