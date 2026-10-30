@@ -153,9 +153,9 @@ export default function CreateUserPage() {
       case "coe":
         return ["faculty"];
       case "principal":
-        return ["hod", "coe", "faculty"];
+        return ["hod", "coe", "faculty", "accountant", "librarian", "admission_incharge", "admin"];
       case "admin":
-        return ["faculty", "hod", "coe", "principal", "student"];
+        return ["faculty", "hod", "coe", "principal", "student", "accountant", "librarian", "admission_incharge"];
       default:
         return [];
     }
@@ -387,12 +387,9 @@ export default function CreateUserPage() {
                 <option value="">Select role</option>
                 {allowedRoles.map((r) => (
                   <option key={r} value={r}>
-                    {r.charAt(0).toUpperCase() + r.slice(1)}
+                    {r.charAt(0).toUpperCase() + r.slice(1).replace('_', ' ')}
                   </option>
                 ))}
-                <option value="accountant">Accountant</option>
-                <option value="librarian">Librarian</option>
-                <option value="admission_incharge">Admission Incharge</option>
               </select>
             </div>
 
