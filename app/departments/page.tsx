@@ -38,6 +38,7 @@ export default function DepartmentsPage() {
   const [hodUsers, setHodUsers] = useState<User[]>([]);
   const [facultyUsers, setFacultyUsers] = useState<User[]>([]);
   const [studentUsers, setStudentUsers] = useState<User[]>([]);
+  const [adminStaffUsers, setAdminStaffUsers] = useState<User[]>([]);
   const [unassignedUsers, setUnassignedUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -142,10 +143,19 @@ export default function DepartmentsPage() {
 
     setStudentUsers((studentData ?? []) as User[]);
 
-    // Load unassigned users
+    // Load admin/staff users (admin, accountant, librarian, admission_incharge)
+    const { data: adminStaffData } = await (supabase.from("users") as any)
+      .select("*")
+      .eq("department", dept.name)
+      .in("role", ["admin", "accountant", "librarian", "admission_incharge"])
+      .or("status.is.null,status.eq.active");
+
+    setAdminStaffUsers((adminStaffData ?? []) as User[]);
+
+    // Load unassigned users (all roles except principal, coe)
     const { data: unassignedData } = await (supabase.from("users") as any)
       .select("*")
-      .in("role", ["hod", "faculty", "student"])
+      .in("role", ["hod", "faculty", "student", "admin", "accountant", "librarian", "admission_incharge"])
       .or("department.is.null,department.eq.")
       .or("status.is.null,status.eq.active");
 
@@ -626,6 +636,65 @@ export default function DepartmentsPage() {
                                 <td className="px-2 py-2 text-xs font-poppins">{user.email}</td>
                                 <td className="px-2 py-2 text-xs font-poppins capitalize">
                                   {user.role}
+                                </td>
+                                <td className="px-2 py-2 text-xs font-poppins">
+                                  {user.section || "—"}
+                                </td>
+                                <td className="px-2 py-2">
+                                  <button
+                                    onClick={() => handleUnassignUser(user.id)}
+                                    disabled={actionLoading === user.id}
+                                    className="bg-orange-500 text-white px-2 py-1 rounded text-xs font-poppins hover:bg-orange-600 transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === user.id ? "..." : "Unassign"}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Admin/Staff Group */}
+                  <div className="mb-4">
+                    <h4 className="text-sm font-semibold text-gray-700 font-poppins mb-2">
+                      Admin & Staff
+                    </h4>
+                    {adminStaffUsers.length === 0 ? (
+                      <p className="text-xs text-gray-400 font-poppins mb-2">No admin/staff assigned.</p>
+                    ) : (
+                      <div className="overflow-x-auto mb-2">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-college-peach">
+                              <th className="text-left px-2 py-1 text-xs text-gray-600 font-poppins">
+                                Name
+                              </th>
+                              <th className="text-left px-2 py-1 text-xs text-gray-600 font-poppins">
+                                Email
+                              </th>
+                              <th className="text-left px-2 py-1 text-xs text-gray-600 font-poppins">
+                                Role
+                              </th>
+                              <th className="text-left px-2 py-1 text-xs text-gray-600 font-poppins">
+                                Section
+                              </th>
+                              <th className="text-left px-2 py-1 text-xs text-gray-600 font-poppins">
+                                Actions
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminStaffUsers.map((user) => (
+                              <tr key={user.id} className="border-b border-college-peach">
+                                <td className="px-2 py-2 text-xs font-poppins">
+                                  {user.full_name}
+                                </td>
+                                <td className="px-2 py-2 text-xs font-poppins">{user.email}</td>
+                                <td className="px-2 py-2 text-xs font-poppins capitalize">
+                                  {user.role.replace('_', ' ')}
                                 </td>
                                 <td className="px-2 py-2 text-xs font-poppins">
                                   {user.section || "—"}
