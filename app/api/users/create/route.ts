@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
         break;
 
       case 'principal':
-        if (['hod', 'coe', 'faculty', 'accountant', 'librarian', 'admission_incharge'].includes(role)) {
+        if (['hod', 'coe', 'faculty', 'accountant', 'librarian', 'admission_incharge', 'admin'].includes(role)) {
           canCreate = true;
           status = 'active';
           approval_stage = null;
