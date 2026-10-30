@@ -141,9 +141,8 @@ export default function AdmissionsPage() {
         .eq("department", department)
         .eq("section", section);
     } else if (role === "hod") {
-      query = query
-        .eq("form_type", "promotion")
-        .eq("department", department);
+      // HOD sees both promotion and fresh admission forms for their department
+      query = query.eq("department", department);
     } else if (role === "accountant" || role === "librarian") {
       query = query.eq("status", "in_progress");
     } else if (role === "principal" || role === "admin") {
