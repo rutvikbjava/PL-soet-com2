@@ -7,6 +7,7 @@ import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 import SignaturePad from "@/components/SignaturePad";
 import jsPDF from "jspdf";
+import { sendNotification } from "@/lib/notify";
 
 interface AdmissionForm {
   id: string;
@@ -541,6 +542,83 @@ export default function PromotionFormDetailPage({
         setTimeout(() => generatePDF(), 1000);
       }
 
+      // Send notifications based on step (#11-15)
+      try {
+        // Find next step
+        const nextStep = steps.find(
+          (s) => s.step_order === activeStep.step_order + 1
+        );
+
+        if (activeStep.step_order === 1) {
+          // #11 Step 1 Approved - Notify HOD (Step 2)
+          if (nextStep?.assigned_to_email) {
+            await sendNotification(
+              nextStep.assigned_to_email,
+              "Admission Approval Pending — Step 2",
+              `${form.student_name}'s admission form has been approved and is now awaiting your signature as HoD.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 2) {
+          // #12 Step 2 Approved - Notify Accountant (Step 3)
+          // Find accountant
+          const { data: accountants } = await (supabase.from("users") as any)
+            .select("email")
+            .eq("role", "accountant")
+            .eq("department", form.department)
+            .limit(1);
+          
+          if (accountants && accountants.length > 0) {
+            await sendNotification(
+              accountants[0].email,
+              "Fee Verification Required",
+              `${form.student_name}'s admission form requires fee verification and receipt entry.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 3) {
+          // #13 Step 3 Approved - Notify Librarian (Step 4)
+          const { data: librarians } = await (supabase.from("users") as any)
+            .select("email")
+            .eq("role", "librarian")
+            .limit(1);
+          
+          if (librarians && librarians.length > 0) {
+            await sendNotification(
+              librarians[0].email,
+              "Library No-Dues Check Required",
+              `${form.student_name}'s admission is pending library no-dues confirmation.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 4) {
+          // #14 Step 4 Approved - Notify Admin (Step 5)
+          const { data: admins } = await (supabase.from("users") as any)
+            .select("email")
+            .eq("role", "admin")
+            .limit(1);
+          
+          if (admins && admins.length > 0) {
+            await sendNotification(
+              admins[0].email,
+              "Final Admission Approval Required",
+              `${form.student_name}'s admission form has cleared all checks and requires your final approval.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 5) {
+          // #15 Final Approval - Notify Student
+          await sendNotification(
+            form.student_email,
+            "Admission Approved ✓",
+            `Congratulations! Your admission form for Semester ${form.target_semester} has been fully approved.`,
+            "all"
+          );
+        }
+      } catch (notifError) {
+        console.error("[Promotion Approval] Notification failed (non-fatal):", notifError);
+      }
+
       router.refresh();
       await fetchData();
       setComment("");
@@ -585,6 +663,18 @@ export default function PromotionFormDetailPage({
       await (supabase.from("admission_forms") as any)
         .update({ status: "rejected" })
         .eq("id", form.id);
+
+      // #16 Send rejection notification to student
+      try {
+        await sendNotification(
+          form.student_email,
+          "Admission Form Returned",
+          `Your admission form was returned at Step ${activeStep.step_name} with comment: '${comment.trim() || "No comment provided"}'`,
+          "all"
+        );
+      } catch (notifError) {
+        console.error("[Promotion Rejection] Notification failed (non-fatal):", notifError);
+      }
 
       router.refresh();
       await fetchData();

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
+import { sendNotification } from "@/lib/notify";
 
 interface CurrentUser {
   email: string;
@@ -340,6 +341,25 @@ export default function NewFreshAdmissionPage() {
         setError("Failed to create workflow steps.");
         setSubmitting(false);
         return;
+      }
+
+      // #10 Notify Step 1 approver (admission_incharge) after form submission
+      try {
+        const { data: admissionIncharge } = await (supabase.from("users") as any)
+          .select("email")
+          .eq("role", "admission_incharge")
+          .limit(1);
+        
+        if (admissionIncharge && admissionIncharge.length > 0) {
+          await sendNotification(
+            admissionIncharge[0].email,
+            "Fresh Admission Form Submitted — CET Verification Required",
+            `${fullName.trim()} has submitted a fresh admission form for ${selectedDepartmentName}. CET verification and eligibility check required.`,
+            "all"
+          );
+        }
+      } catch (notifError) {
+        console.error("[Fresh Admission Submit] Notification failed (non-fatal):", notifError);
       }
 
       // Success - redirect

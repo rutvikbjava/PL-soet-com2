@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 import SignaturePad from "@/components/SignaturePad";
+import { sendNotification } from "@/lib/notify";
 
 interface AdmissionForm {
   id: string;
@@ -27,6 +28,7 @@ interface AdmissionStep {
   step_order: number;
   step_name: string;
   required_role: string;
+  assigned_to_email: string | null;
   status: string;
   signature_url: string | null;
   signed_at: string | null;
@@ -340,6 +342,97 @@ export default function FreshAdmissionDetailPage({
           .eq("id", form.id);
       }
 
+      // Send notifications based on step (#11-15, adapted for fresh admissions)
+      try {
+        // Find next step
+        const nextStep = steps.find(
+          (s) => s.step_order === activeStep.step_order + 1
+        );
+
+        if (activeStep.step_order === 1) {
+          // #11 Step 1 Approved (Admission Incharge) - Notify HOD (Step 2)
+          if (nextStep?.assigned_to_email) {
+            await sendNotification(
+              nextStep.assigned_to_email,
+              "Admission Approval Pending — Step 2",
+              `${form.student_name}'s fresh admission form has been approved and is now awaiting your signature as HoD.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 2) {
+          // #12 Step 2 Approved (HOD) - Notify Accountant (Step 3)
+          const { data: accountants } = await (supabase.from("users") as any)
+            .select("email")
+            .eq("role", "accountant")
+            .eq("department", form.department)
+            .limit(1);
+          
+          if (accountants && accountants.length > 0) {
+            await sendNotification(
+              accountants[0].email,
+              "Fee Verification Required",
+              `${form.student_name}'s fresh admission form requires fee verification and receipt entry.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 3) {
+          // #13 Step 3 Approved (Accountant) - Notify Librarian (Step 4)
+          const { data: librarians } = await (supabase.from("users") as any)
+            .select("email")
+            .eq("role", "librarian")
+            .limit(1);
+          
+          if (librarians && librarians.length > 0) {
+            await sendNotification(
+              librarians[0].email,
+              "Library Clearance Required",
+              `${form.student_name}'s fresh admission requires library clearance.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 4) {
+          // #14 Step 4 Approved (Librarian) - Notify Admin (Step 5)
+          const { data: admins } = await (supabase.from("users") as any)
+            .select("email")
+            .eq("role", "admin")
+            .limit(1);
+          
+          if (admins && admins.length > 0) {
+            await sendNotification(
+              admins[0].email,
+              "Admin Approval Required",
+              `${form.student_name}'s fresh admission form has cleared library and requires your approval.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 5) {
+          // Step 5 Approved (Admin) - Notify Principal (Step 6, final)
+          const { data: principals } = await (supabase.from("users") as any)
+            .select("email")
+            .eq("role", "principal")
+            .limit(1);
+          
+          if (principals && principals.length > 0) {
+            await sendNotification(
+              principals[0].email,
+              "Final Fresh Admission Approval Required",
+              `${form.student_name}'s fresh admission form requires your final signature as Principal.`,
+              "all"
+            );
+          }
+        } else if (activeStep.step_order === 6) {
+          // #15 Final Approval - Notify Student
+          await sendNotification(
+            form.student_email,
+            "Fresh Admission Approved ✓",
+            `Congratulations! Your fresh admission form has been fully approved. Welcome to ${form.department}!`,
+            "all"
+          );
+        }
+      } catch (notifError) {
+        console.error("[Fresh Admission Approval] Notification failed (non-fatal):", notifError);
+      }
+
       router.refresh();
       await fetchData();
       setComment("");
@@ -387,6 +480,18 @@ export default function FreshAdmissionDetailPage({
       await (supabase.from("admission_forms") as any)
         .update({ status: "rejected" })
         .eq("id", form.id);
+
+      // #16 Send rejection notification to student
+      try {
+        await sendNotification(
+          form.student_email,
+          "Fresh Admission Form Returned",
+          `Your fresh admission form was returned at Step ${activeStep.step_name} with comment: '${comment.trim() || "No comment provided"}'`,
+          "all"
+        );
+      } catch (notifError) {
+        console.error("[Fresh Admission Rejection] Notification failed (non-fatal):", notifError);
+      }
 
       router.refresh();
       await fetchData();

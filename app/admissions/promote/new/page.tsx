@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 import SignaturePad from "@/components/SignaturePad";
+import { sendNotification } from "@/lib/notify";
 
 // Helper function to find active season
 function findActiveSeason(seasons: any[], department: string, section: string) {
@@ -358,6 +359,20 @@ export default function PromoteNewPage() {
       ];
 
       await (supabase.from("admission_steps") as any).insert(steps);
+
+      // #10 Notify Step 1 approver (faculty/class teacher) after form submission
+      try {
+        if (facultyEmail) {
+          await sendNotification(
+            facultyEmail,
+            "Admission Approval Pending — Step 1",
+            `${student.full_name} has submitted their promotion admission form. Your approval is required as Class Teacher.`,
+            "all"
+          );
+        }
+      } catch (notifError) {
+        console.error("[Promotion Form Submit] Notification failed (non-fatal):", notifError);
+      }
 
       // Redirect to form detail page
       router.push(`/admissions/promote/${formId}`);
