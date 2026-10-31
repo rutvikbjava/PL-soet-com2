@@ -446,20 +446,28 @@ export default function ProfilePage() {
         <div className="card mb-6">
           <h2 className="section-heading">Email Verification</h2>
           
+          <div className="mb-4">
+            <p className="text-sm text-gray-600 font-poppins mb-4">
+              Your registered email: <strong>{user.email}</strong>
+            </p>
+            <p className="text-xs text-gray-500 font-poppins">
+              Note: Email address cannot be changed after account creation. Contact your administrator if you need to update it.
+            </p>
+          </div>
+
           <div className="flex items-center gap-4 mb-4">
             <div className="flex-1">
               <label className="block text-sm font-semibold text-gray-600 font-poppins mb-1">
-                Email Status
+                Verification Status
               </label>
               <div className="flex items-center gap-2">
-                <p className="text-sm text-gray-700 font-poppins">{user.email}</p>
                 {user.email_verified ? (
-                  <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                    ✓ Verified
+                  <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-semibold">
+                    ✓ Email Verified
                   </span>
                 ) : (
-                  <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs font-semibold">
-                    ⚠ Not Verified
+                  <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-semibold">
+                    ⚠ Email Not Verified
                   </span>
                 )}
               </div>
@@ -485,34 +493,47 @@ export default function ProfilePage() {
                   disabled={sendingOtp}
                   className="btn-primary disabled:opacity-50"
                 >
-                  {sendingOtp ? 'Sending OTP...' : 'Send Verification Code'}
+                  {sendingOtp ? 'Sending verification code...' : 'Send Verification Code'}
                 </button>
               ) : (
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    placeholder="Enter 6-digit OTP"
-                    maxLength={6}
-                    disabled={verifyingOtp}
-                    className="input-field flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleVerifyOtp}
-                    disabled={verifyingOtp || !otp.trim()}
-                    className="btn-primary disabled:opacity-50"
-                  >
-                    {verifyingOtp ? 'Verifying...' : 'Verify'}
-                  </button>
+                <div>
+                  <p className="text-sm text-gray-700 font-poppins mb-3">
+                    A 6-digit code has been sent to <strong>{user.email}</strong>. Please check your inbox.
+                  </p>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="Enter 6-digit code"
+                      maxLength={6}
+                      disabled={verifyingOtp}
+                      className="input-field flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVerifyOtp}
+                      disabled={verifyingOtp || otp.length !== 6}
+                      className="btn-primary disabled:opacity-50"
+                    >
+                      {verifyingOtp ? 'Verifying...' : 'Verify'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setOtpSent(false); setOtp(''); setOtpMessage(null); }}
+                      disabled={sendingOtp || verifyingOtp}
+                      className="btn-secondary disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={handleSendOtp}
                     disabled={sendingOtp}
-                    className="btn-secondary disabled:opacity-50"
+                    className="text-sm text-college-secondary hover:underline font-poppins mt-3"
                   >
-                    Resend
+                    Didn't receive the code? Resend
                   </button>
                 </div>
               )}
