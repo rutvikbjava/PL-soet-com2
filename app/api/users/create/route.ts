@@ -294,6 +294,103 @@ export async function POST(request: NextRequest) {
       console.error('notify failed (non-fatal):', notifyError);
     }
 
+    // Send welcome email to newly created user (#17)
+    try {
+      const { sendEmail } = await import('@/lib/notify');
+      
+      const welcomeHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Welcome to EduSphere AI</title>
+        </head>
+        <body style="font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+            <h1 style="color: white; margin: 0; font-size: 28px;">Welcome to EduSphere AI!</h1>
+            <p style="color: #f0f0f0; margin: 10px 0 0 0; font-size: 14px;">MGM University SOET</p>
+          </div>
+          
+          <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 10px 10px;">
+            <h2 style="color: #667eea; margin-top: 0; font-size: 22px;">Hello ${full_name},</h2>
+            
+            <p style="font-size: 15px; color: #555; line-height: 1.8;">
+              Your EduSphere AI account has been successfully created! You can now access the platform to manage your academic activities.
+            </p>
+            
+            <div style="background: #f8f9fa; padding: 20px; border-left: 4px solid #667eea; margin: 25px 0; border-radius: 4px;">
+              <h3 style="margin-top: 0; color: #333; font-size: 16px;">Your Account Details:</h3>
+              <table style="width: 100%; font-size: 14px; color: #555;">
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Email:</td>
+                  <td style="padding: 8px 0;">${email}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Role:</td>
+                  <td style="padding: 8px 0; text-transform: capitalize;">${role.replace('_', ' ')}</td>
+                </tr>
+                ${finalDepartment ? `
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Department:</td>
+                  <td style="padding: 8px 0;">${finalDepartment}</td>
+                </tr>
+                ` : ''}
+                ${section ? `
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Section:</td>
+                  <td style="padding: 8px 0;">${section}</td>
+                </tr>
+                ` : ''}
+              </table>
+            </div>
+            
+            ${status === 'pending' ? `
+            <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p style="margin: 0; font-size: 14px; color: #856404;">
+                ⏳ <strong>Approval Pending:</strong> Your account is awaiting approval from ${approval_stage === 'hod' ? 'your HOD' : 'the Principal'}. You'll receive another email once approved.
+              </p>
+            </div>
+            ` : `
+            <div style="background: #d4edda; border: 1px solid #28a745; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p style="margin: 0; font-size: 14px; color: #155724;">
+                ✅ <strong>Account Active:</strong> You can log in now and start using EduSphere AI!
+              </p>
+            </div>
+            `}
+            
+            <p style="font-size: 14px; color: #666; margin-top: 25px;">
+              Use your email address and the password shared with you by your administrator to log in.
+            </p>
+            
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; text-align: center;">
+              <a href="${process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://pl-soet-com2.vercel.app'}/login" 
+                 style="display: inline-block; background: #667eea; color: white; padding: 14px 35px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 15px;">
+                Login to EduSphere
+              </a>
+            </div>
+            
+            <div style="margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+              <p style="font-size: 13px; color: #666; margin: 0;">
+                💡 <strong>Getting Started:</strong> After logging in, complete your profile and explore the dashboard to access all features available for your role.
+              </p>
+            </div>
+          </div>
+          
+          <div style="text-align: center; margin-top: 20px; padding: 20px; color: #999; font-size: 12px;">
+            <p style="margin: 5px 0;">&copy; ${new Date().getFullYear()} MGM University SOET | EduSphere AI</p>
+            <p style="margin: 5px 0;">If you have any questions, contact your department administrator.</p>
+          </div>
+        </body>
+        </html>
+      `;
+      
+      await sendEmail(email, 'Welcome to EduSphere AI - Your Account is Ready', welcomeHtml);
+      console.log('[notify] Welcome email sent to:', email);
+    } catch (emailError) {
+      console.error('[notify] Failed to send welcome email (non-fatal):', emailError);
+    }
+
     return NextResponse.json({
       success: true,
       status,
