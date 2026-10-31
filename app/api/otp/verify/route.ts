@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createBrowserClient } from '@/lib/supabase';
 import { createAdminClient } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
@@ -31,10 +30,10 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
     const normalizedToken = token.trim();
 
-    // Verify OTP using Supabase Auth
-    const supabase = createBrowserClient();
+    // Use admin client to verify OTP
+    const admin = createAdminClient();
     
-    const { data, error } = await supabase.auth.verifyOtp({
+    const { data, error } = await admin.auth.verifyOtp({
       email: normalizedEmail,
       token: normalizedToken,
       type: 'email',
@@ -56,8 +55,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Update email_verified flag in users table
-    const admin = createAdminClient();
-    
     const { error: updateError } = await (admin.from('users') as any)
       .update({ email_verified: true })
       .eq('email', normalizedEmail);

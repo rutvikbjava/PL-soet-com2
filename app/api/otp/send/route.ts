@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createBrowserClient } from '@/lib/supabase';
+import { createAdminClient } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,14 +22,24 @@ export async function POST(request: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Use Supabase's built-in OTP email system
-    const supabase = createBrowserClient();
-    
-    const { error } = await supabase.auth.signInWithOtp({
+    // Check if user exists
+    const admin = createAdminClient();
+    const { data: user, error: userError } = await (admin.from('users') as any)
+      .select('email')
+      .eq('email', normalizedEmail)
+      .single();
+
+    if (userError || !user) {
+      return NextResponse.json(
+        { error: 'User not found with this email address.' },
+        { status: 404 }
+      );
+    }
+
+    // Use Supabase Admin Auth to send OTP
+    const { error } = await admin.auth.admin.generateLink({
+      type: 'magiclink',
       email: normalizedEmail,
-      options: {
-        shouldCreateUser: false, // Don't create new user, only send OTP to existing users
-      },
     });
 
     if (error) {
