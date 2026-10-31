@@ -27,6 +27,8 @@ interface UserProfile {
   state: string | null;
   pincode: string | null;
   photo_url: string | null;
+  email_verified: boolean | null;
+  phone_number: string | null;
 }
 
 export default function ProfilePage() {
@@ -59,6 +61,13 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [changingPassword, setChangingPassword] = useState(false);
+
+  // Email verification fields
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [otpMessage, setOtpMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -270,6 +279,74 @@ export default function ProfilePage() {
     return name.charAt(0).toUpperCase();
   };
 
+  const handleSendOtp = async () => {
+    if (!user?.email) return;
+    
+    setSendingOtp(true);
+    setOtpMessage(null);
+
+    try {
+      const response = await fetch('/api/otp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setOtpMessage({ text: data.error || 'Failed to send OTP', type: 'error' });
+        setSendingOtp(false);
+        return;
+      }
+
+      setOtpSent(true);
+      setOtpMessage({ text: 'OTP sent to your email. Please check your inbox.', type: 'success' });
+      setSendingOtp(false);
+    } catch (err: any) {
+      console.error('Send OTP error:', err);
+      setOtpMessage({ text: err.message || 'Failed to send OTP', type: 'error' });
+      setSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!user?.email || !otp.trim()) {
+      setOtpMessage({ text: 'Please enter the OTP', type: 'error' });
+      return;
+    }
+
+    setVerifyingOtp(true);
+    setOtpMessage(null);
+
+    try {
+      const response = await fetch('/api/otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, token: otp.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setOtpMessage({ text: data.error || 'Invalid OTP', type: 'error' });
+        setVerifyingOtp(false);
+        return;
+      }
+
+      // Update local user state
+      setUser({ ...user, email_verified: true });
+      setOtpMessage({ text: 'Email verified successfully! ✓', type: 'success' });
+      setOtp('');
+      setOtpSent(false);
+      setVerifyingOtp(false);
+    } catch (err: any) {
+      console.error('Verify OTP error:', err);
+      setOtpMessage({ text: err.message || 'Verification failed', type: 'error' });
+      setVerifyingOtp(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-college-bg flex items-center justify-center">
@@ -363,6 +440,92 @@ export default function ProfilePage() {
               <p className="text-sm text-gray-700 font-poppins capitalize">{user.status}</p>
             </div>
           </div>
+        </div>
+
+        {/* Email Verification Section */}
+        <div className="card mb-6">
+          <h2 className="section-heading">Email Verification</h2>
+          
+          <div className="flex items-center gap-4 mb-4">
+            <div className="flex-1">
+              <label className="block text-sm font-semibold text-gray-600 font-poppins mb-1">
+                Email Status
+              </label>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-gray-700 font-poppins">{user.email}</p>
+                {user.email_verified ? (
+                  <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">
+                    ✓ Verified
+                  </span>
+                ) : (
+                  <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full text-xs font-semibold">
+                    ⚠ Not Verified
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {!user.email_verified && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-700 font-poppins mb-4">
+                📧 Verify your email to receive important notifications and updates from EduSphere AI.
+              </p>
+
+              {otpMessage && (
+                <div className={`mb-4 p-3 rounded-lg ${otpMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  <p className="text-sm font-poppins">{otpMessage.text}</p>
+                </div>
+              )}
+
+              {!otpSent ? (
+                <button
+                  type="button"
+                  onClick={handleSendOtp}
+                  disabled={sendingOtp}
+                  className="btn-primary disabled:opacity-50"
+                >
+                  {sendingOtp ? 'Sending OTP...' : 'Send Verification Code'}
+                </button>
+              ) : (
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value)}
+                    placeholder="Enter 6-digit OTP"
+                    maxLength={6}
+                    disabled={verifyingOtp}
+                    className="input-field flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleVerifyOtp}
+                    disabled={verifyingOtp || !otp.trim()}
+                    className="btn-primary disabled:opacity-50"
+                  >
+                    {verifyingOtp ? 'Verifying...' : 'Verify'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendOtp}
+                    disabled={sendingOtp}
+                    className="btn-secondary disabled:opacity-50"
+                  >
+                    Resend
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {user.email_verified && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <p className="text-sm text-green-700 font-poppins">
+                ✓ Your email is verified. You will receive all notifications via email.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Editable Profile Form */}
