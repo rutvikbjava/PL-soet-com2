@@ -14,62 +14,53 @@ This document outlines all notification points that need to be integrated across
   - Shows approval status (pending/active)
   - Includes login link
 
----
-
-## 🔄 IN PROGRESS
-
 ### 3. Admission Workflow Notifications (#10-16)
 
-**Files to modify:**
-- `app/admissions/promote/[id]/page.tsx` (promotion forms)
-- `app/admissions/fresh/[id]/page.tsx` (fresh admissions)
+**Files modified:**
+- ✅ `app/admissions/promote/[id]/page.tsx` (promotion forms)
+- ✅ `app/admissions/fresh/[id]/page.tsx` (fresh admissions)
+- ✅ `app/admissions/promote/new/page.tsx` (promotion submission)
+- ✅ `app/admissions/fresh/new/page.tsx` (fresh submission)
 
 **Notification Points:**
 
-#### #10 Form Submitted by Student
-**Trigger:** After `insert into admission_forms`  
-**Location:** `app/admissions/promote/new/page.tsx` line ~360, `app/admissions/fresh/new/page.tsx` line ~340  
-**Notify:** Step 1 approver (faculty for promotion, admission_incharge for fresh)  
-**Title:** "Admission Approval Pending — Step 1"  
-**Message:** "{studentName} has submitted their admission form. Your approval is required."
+- ✅ **#10 Form Submitted by Student**  
+  **Location:** `app/admissions/promote/new/page.tsx` line ~365, `app/admissions/fresh/new/page.tsx` line ~350  
+  **Notify:** Step 1 approver (faculty for promotion, admission_incharge for fresh)  
+  **Title:** "Admission Approval Pending — Step 1"  
+  **Message:** "{studentName} has submitted their admission form. Your approval is required."
 
-#### #11 Step 1 Approved (Class Teacher / Admission Incharge)
-**Trigger:** After `admission_steps.update` where `step_order=1` and `status='approved'`  
-**Location:** `app/admissions/promote/[id]/page.tsx` line ~492, `app/admissions/fresh/[id]/page.tsx` line ~279  
-**Notify:** Step 2 approver (HOD for both)  
-**Title:** "Admission Approval Pending — Step 2"  
-**Message:** "{studentName}'s admission form has been approved and is now awaiting your signature as HoD."
+- ✅ **#11 Step 1 Approved (Class Teacher / Admission Incharge)**  
+  **Location:** `app/admissions/promote/[id]/page.tsx` line ~533, `app/admissions/fresh/[id]/page.tsx` line ~353  
+  **Notify:** Step 2 approver (HOD for both)  
+  **Title:** "Admission Approval Pending — Step 2"  
+  **Message:** "{studentName}'s admission form has been approved and is now awaiting your signature as HoD."
 
-#### #12 Step 2 Approved (HOD)
-**Trigger:** `step_order=2`, `status='approved'`  
-**Notify:** Accountant  
-**Title:** "Fee Verification Required"  
-**Message:** "{studentName}'s admission form requires fee verification and receipt entry."
+- ✅ **#12 Step 2 Approved (HOD)**  
+  **Notify:** Accountant  
+  **Title:** "Fee Verification Required"  
+  **Message:** "{studentName}'s admission form requires fee verification and receipt entry."
 
-#### #13 Step 3 Approved (Accountant)
-**Trigger:** `step_order=3`, `status='approved'`  
-**Notify:** Librarian  
-**Title:** "Library No-Dues Check Required"  
-**Message:** "{studentName}'s admission is pending library no-dues confirmation."
+- ✅ **#13 Step 3 Approved (Accountant)**  
+  **Notify:** Librarian  
+  **Title:** "Library No-Dues Check Required"  
+  **Message:** "{studentName}'s admission is pending library no-dues confirmation."
 
-#### #14 Step 4 Approved (Librarian)
-**Trigger:** `step_order=4`, `status='approved'`  
-**Notify:** Admin  
-**Title:** "Final Admission Approval Required"  
-**Message:** "{studentName}'s admission form has cleared all checks and requires your final approval."
+- ✅ **#14 Step 4 Approved (Librarian)**  
+  **Notify:** Admin  
+  **Title:** "Final Admission Approval Required"  
+  **Message:** "{studentName}'s admission form has cleared all checks and requires your final approval."
 
-#### #15 Step 5 / Final Approval (Admin)
-**Trigger:** `step_order=5`, `status='approved'` (promotion) OR `step_order=6` (fresh)  
-**Notify:** Student  
-**Title:** "Admission Approved ✓"  
-**Message:** "Congratulations! Your admission form for Semester {sem} has been fully approved."
+- ✅ **#15 Step 5 / Final Approval (Admin for promotion, Principal for fresh)**  
+  **Notify:** Student  
+  **Title:** "Admission Approved ✓"  
+  **Message:** "Congratulations! Your admission form for Semester {sem} has been fully approved."
 
-#### #16 Any Step Rejected
-**Trigger:** After `admission_steps.update` where `status='rejected'`  
-**Location:** Both promotion and fresh admission pages have `handleReject` function  
-**Notify:** Student  
-**Title:** "Admission Form Returned"  
-**Message:** "Your admission form was returned at Step {stepName} with comment: '{comment}'"
+- ✅ **#16 Any Step Rejected**  
+  **Location:** Both promotion and fresh admission pages in `handleReject` function  
+  **Notify:** Student  
+  **Title:** "Admission Form Returned"  
+  **Message:** "Your admission form was returned at Step {stepName} with comment: '{comment}'"
 
 ---
 
